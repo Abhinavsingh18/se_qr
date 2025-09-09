@@ -260,7 +260,8 @@ def generate_qr_code_base64(data):
     img = qr.make_image(fill_color="black", back_color="white")
     
     buffered = io.BytesIO()
-    img.save(buffered, format="PNG")
+# NEW CODE - FIXED
+    img.save(buffered)
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 def render_page(title, content_template, **context):
