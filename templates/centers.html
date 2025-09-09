@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Centers</title>
+</head>
+<body>
+    <h1>Centers</h1>
+    <ul>
+        {% for c in centers %}
+            <li>{{ c.name }} - {{ c.address }}</li>
+        {% endfor %}
+    </ul>
+    <a href="{{ url_for('index') }}">Back</a>
+</body>
+</html>

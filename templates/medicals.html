@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Medicals</title>
+</head>
+<body>
+    <h1>Medicals</h1>
+    <ul>
+        {% for m in medicals %}
+            <li>
+                {{ m.name }} - {{ m.center_name }}
+                {% if m.qr_code %}
+                    <img src="{{ url_for('static', filename='qr_codes/' ~ m._id ~ '.png') }}" width="100">
+                {% endif %}
+            </li>
+        {% endfor %}
+    </ul>
+    <a href="{{ url_for('index') }}">Back</a>
+</body>
+</html>

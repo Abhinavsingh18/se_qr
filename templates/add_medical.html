@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Add Medical</title>
+</head>
+<body>
+    <h1>Add Medical</h1>
+    <form method="POST">
+        <label>Name:</label><input type="text" name="name" required><br>
+        <label>Center:</label>
+        <select name="center_id" required>
+            {% for c in centers %}
+                <option value="{{ c._id }}">{{ c.name }}</option>
+            {% endfor %}
+        </select><br>
+        <button type="submit">Add Medical</button>
+    </form>
+    <a href="{{ url_for('index') }}">Back</a>
+</body>
+</html>
