@@ -12,8 +12,10 @@ from dotenv import load_dotenv
 # ## 1. HTML TEMPLATES AS PYTHON STRINGS
 # ##############################################################################
 
-# Base layout for all pages
-LAYOUT_TEMPLATE = """
+# === ADMIN FACING TEMPLATES ===
+
+# Base layout for all ADMIN pages (includes navbar)
+ADMIN_LAYOUT_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="dark">
 <head>
@@ -189,37 +191,68 @@ ADMIN_TEMPLATE = """
 </div>
 """
 
-# Patient registration form template
+# === PATIENT FACING TEMPLATES (No Navbar) ===
+
+# Patient registration form template (Full page, no layout)
 REGISTER_TEMPLATE = """
-<div class="row justify-content-center">
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header text-center">
-                <h3>Patient Registration</h3>
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Patient Registration</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #212529; color: #dee2e6; padding-top: 2rem; }
+        .card { background-color: #343a40; border-color: #495057; }
+        .form-control { background-color: #495057; border-color: #6c757d; color: #fff; }
+        .form-control:focus { background-color: #495057; border-color: #0d6efd; color: #fff; }
+    </style>
+</head>
+<body>
+<main class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="row justify-content-center">
+                <div class="col-md-6">
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                </div>
             </div>
-            <div class="card-body">
-                <p class="text-center">You are registering with <strong>{{ medical.name }}</strong> at <strong>{{ center.name }}</strong>.</p>
-                <form method="POST" class="needs-validation" novalidate>
-                    <div class="mb-3">
-                        <label for="name" class="form-label">Full Name</label>
-                        <input type="text" class="form-control" id="name" name="name" required>
-                        <div class="invalid-feedback">Please enter your name.</div>
-                    </div>
-                    <div class="mb-3">
-                        <label for="phone" class="form-label">Phone Number</label>
-                        <input type="tel" class="form-control" id="phone" name="phone" required>
-                        <div class="invalid-feedback">Please enter your phone number.</div>
-                    </div>
-                    <div class="mb-3">
-                        <label for="ultrasound_name" class="form-label">Ultrasound Name (Optional)</label>
-                        <input type="text" class="form-control" id="ultrasound_name" name="ultrasound_name">
-                    </div>
-                    <button type="submit" class="btn btn-primary w-100">Submit Registration</button>
-                </form>
+        {% endif %}
+    {% endwith %}
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header text-center">
+                    <h3>Patient Registration</h3>
+                </div>
+                <div class="card-body">
+                    <p class="text-center">You are registering with <strong>{{ medical.name }}</strong> at <strong>{{ center.name }}</strong>.</p>
+                    <form method="POST" class="needs-validation" novalidate>
+                        <div class="mb-3">
+                            <label for="name" class="form-label">Full Name</label>
+                            <input type="text" class="form-control" id="name" name="name" required>
+                            <div class="invalid-feedback">Please enter your name.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="phone" class="form-label">Phone Number</label>
+                            <input type="tel" class="form-control" id="phone" name="phone" required minlength="10" maxlength="12" pattern="[0-9]{10,12}">
+                            <div class="invalid-feedback">Please enter a valid 10 to 12 digit phone number.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="ultrasound_name" class="form-label">Ultrasound Name</label>
+                            <input type="text" class="form-control" id="ultrasound_name" name="ultrasound_name" required>
+                            <div class="invalid-feedback">Please enter the ultrasound name.</div>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">Submit Registration</button>
+                    </form>
+                </div>
             </div>
         </div>
     </div>
-</div>
+</main>
 <script>
     (() => {
         'use strict'
@@ -235,34 +268,45 @@ REGISTER_TEMPLATE = """
         })
     })()
 </script>
+</body>
+</html>
 """
 
-# Success message template
+# Success message template (Full page, no layout)
 SUCCESS_TEMPLATE = """
-<div class="text-center py-5">
-    <h1 class="display-4 text-success">Registration Successful!</h1>
-    <p class="lead">Thank you. Your information has been submitted.</p>
-</div>
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Success</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #212529; color: #dee2e6; display: flex; align-items: center; justify-content: center; height: 100vh; }
+    </style>
+</head>
+<body>
+    <div class="text-center py-5">
+        <h1 class="display-4 text-success">Registration Successful!</h1>
+        <p class="lead">Thank you. Your information has been submitted.</p>
+    </div>
+</body>
+</html>
 """
 
 # ##############################################################################
 # ## 2. APPLICATION SETUP AND CONFIGURATION
 # ##############################################################################
 
-# Load environment variables from .env file
 load_dotenv()
-
-# --- App Initialization ---
 app = Flask(__name__)
 app.secret_key = os.getenv("ADMIN_KEY")
 
-# --- Environment Variables & Config ---
 MONGO_URI = os.getenv("MONGO_URI")
 HOST_URL = os.getenv("HOST_URL")
 ADMIN_USER = os.getenv("ADMIN_USER", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "password")
 
-# --- Database Setup ---
 client = MongoClient(MONGO_URI)
 db = client.get_database()
 centers_collection = db.centers
@@ -274,20 +318,18 @@ patients_collection = db.patients
 # ##############################################################################
 
 def generate_qr_code_base64(data):
-    """Generates a QR code and returns it as a Base64 encoded string."""
     qr = qrcode.QRCode(version=1, box_size=10, border=4)
     qr.add_data(data)
     qr.make(fit=True)
     img = qr.make_image(fill_color="black", back_color="white")
-    
     buffered = io.BytesIO()
-    img.save(buffered) # Removed format="PNG" for compatibility
+    img.save(buffered)
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-def render_page(title, content_template, **context):
-    """Renders a page by injecting content into the layout."""
+def render_admin_page(title, content_template, **context):
+    """Renders an ADMIN page by injecting content into the admin layout."""
     content = render_template_string(content_template, **context)
-    return render_template_string(LAYOUT_TEMPLATE, title=title, content=content)
+    return render_template_string(ADMIN_LAYOUT_TEMPLATE, title=title, content=content)
 
 # ##############################################################################
 # ## 4. FLASK ROUTES
@@ -295,7 +337,6 @@ def render_page(title, content_template, **context):
 
 @app.route('/')
 def index():
-    """Redirects home to login or admin."""
     if 'logged_in' in session:
         return redirect(url_for('admin_dashboard'))
     return redirect(url_for('login'))
@@ -305,15 +346,12 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        if username == ADMIN_USER and password == ADMIN_PASSWORD:
+        if request.form.get('username') == ADMIN_USER and request.form.get('password') == ADMIN_PASSWORD:
             session['logged_in'] = True
-            flash('You were successfully logged in', 'success')
             return redirect(url_for('admin_dashboard'))
         else:
             flash('Invalid credentials. Please try again.', 'danger')
-    return render_page("Admin Login", LOGIN_TEMPLATE)
+    return render_admin_page("Admin Login", LOGIN_TEMPLATE)
 
 @app.route('/logout')
 def logout():
@@ -325,10 +363,7 @@ def logout():
 
 @app.route('/admin')
 def admin_dashboard():
-    """A single view for all admin tasks."""
-    if 'logged_in' not in session:
-        return redirect(url_for('login'))
-        
+    if 'logged_in' not in session: return redirect(url_for('login'))
     all_centers = list(centers_collection.find({}, sort=[('name', 1)]))
     pipeline = [
         {"$sort": {"name": 1}},
@@ -338,22 +373,14 @@ def admin_dashboard():
         {"$unwind": {"path": "$medicals.patients", "preserveNullAndEmptyArrays": True}},
         {"$sort": {"medicals.patients.timestamp": -1}},
         {"$group": {
-            "_id": "$medicals._id",
-            "center_id": {"$first": "$_id"},
-            "center_name": {"$first": "$name"},
-            "center_address": {"$first": "$address"},
-            "medical_name": {"$first": "$medicals.name"},
-            "qr_code": {"$first": "$medicals.qr_code"},
-            "patients": {"$push": "$medicals.patients"}
+            "_id": "$medicals._id", "center_id": {"$first": "$_id"}, "center_name": {"$first": "$name"},
+            "center_address": {"$first": "$address"}, "medical_name": {"$first": "$medicals.name"},
+            "qr_code": {"$first": "$medicals.qr_code"}, "patients": {"$push": "$medicals.patients"}
         }},
         {"$group": {
-            "_id": "$center_id",
-            "name": {"$first": "$center_name"},
-            "address": {"$first": "$center_address"},
+            "_id": "$center_id", "name": {"$first": "$center_name"}, "address": {"$first": "$center_address"},
             "medicals": {"$push": {
-                "_id": "$_id",
-                "name": "$medical_name",
-                "qr_code": "$qr_code",
+                "_id": "$_id", "name": "$medical_name", "qr_code": "$qr_code",
                 "patients": {"$filter": {"input": "$patients", "as": "p", "cond": {"$ne": ["$$p", {}]}}}
             }}
         }},
@@ -364,25 +391,21 @@ def admin_dashboard():
         {"$sort": {"name": 1}}
     ]
     centers_with_data = list(centers_collection.aggregate(pipeline))
-    return render_page("Admin Dashboard", ADMIN_TEMPLATE, centers=all_centers, centers_with_medicals=centers_with_data)
+    return render_admin_page("Admin Dashboard", ADMIN_TEMPLATE, centers=all_centers, centers_with_medicals=centers_with_data)
 
 @app.route('/add-center', methods=['POST'])
 def add_center():
-    if 'logged_in' not in session:
-        return redirect(url_for('login'))
+    if 'logged_in' not in session: return redirect(url_for('login'))
     name = request.form.get('name')
     address = request.form.get('address')
     if name and address:
         centers_collection.insert_one({'name': name, 'address': address})
         flash(f"Center '{name}' added successfully!", "success")
-    else:
-        flash("Name and Address are required.", "danger")
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/add-medical', methods=['POST'])
 def add_medical():
-    if 'logged_in' not in session:
-        return redirect(url_for('login'))
+    if 'logged_in' not in session: return redirect(url_for('login'))
     name = request.form.get('name')
     center_id_str = request.form.get('center_id')
     if name and center_id_str:
@@ -392,8 +415,6 @@ def add_medical():
         qr_code_b64 = generate_qr_code_base64(registration_url)
         medicals_collection.update_one({'_id': new_medical.inserted_id}, {'$set': {'qr_code': qr_code_b64}})
         flash(f"Medical '{name}' added and QR code generated.", "success")
-    else:
-        flash("Medical's Name and assigned Center are required.", "danger")
     return redirect(url_for('admin_dashboard'))
 
 # --- PATIENT REGISTRATION ROUTES ---
@@ -403,38 +424,40 @@ def register_patient(medical_id):
     try:
         medical_obj_id = ObjectId(medical_id)
         medical = medicals_collection.find_one({'_id': medical_obj_id})
-        
         if not medical:
-            return render_page("Error", "<h2>Invalid registration link. Medical not found.</h2>"), 404
-
+            return "<h2>Invalid registration link. Medical not found.</h2>", 404
         center = centers_collection.find_one({'_id': medical['center_id']})
 
         if request.method == 'POST':
             patient_name = request.form.get('name')
             patient_phone = request.form.get('phone')
-            ultrasound_name = request.form.get('ultrasound_name', '') # Get the new field
+            ultrasound_name = request.form.get('ultrasound_name')
 
-            if not patient_name or not patient_phone:
-                flash("Name and Phone Number are required.", "danger")
+            # --- Server-Side Validation ---
+            error = None
+            if not patient_name or not patient_phone or not ultrasound_name:
+                error = "All fields are required."
+            elif not patient_phone.isdigit() or not (10 <= len(patient_phone) <= 12):
+                error = "Phone number must be 10 to 12 digits."
+            
+            if error:
+                flash(error, "danger")
                 return redirect(url_for('register_patient', medical_id=medical_id))
 
             patients_collection.insert_one({
-                'name': patient_name,
-                'phone': patient_phone,
-                'ultrasound_name': ultrasound_name, # Save the new field
-                'medical_id': medical_obj_id,
-                'center_id': medical['center_id'],
+                'name': patient_name, 'phone': patient_phone, 'ultrasound_name': ultrasound_name,
+                'medical_id': medical_obj_id, 'center_id': medical['center_id'],
                 'timestamp': datetime.utcnow()
             })
             return redirect(url_for('registration_success'))
             
-        return render_page("Patient Registration", REGISTER_TEMPLATE, medical=medical, center=center)
+        return render_template_string(REGISTER_TEMPLATE, medical=medical, center=center)
     except Exception:
-        return render_page("Error", "<h2>Invalid registration link format.</h2>"), 400
+        return "<h2>Invalid registration link format.</h2>", 400
 
 @app.route('/success')
 def registration_success():
-    return render_page("Success", SUCCESS_TEMPLATE)
+    return render_template_string(SUCCESS_TEMPLATE)
 
 # ##############################################################################
 # ## 5. RUN THE APPLICATION
