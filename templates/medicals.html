@@ -1,6 +1,38 @@
-{% for medical in medicals %}
-    <p>{{ medical.name }} ({{ medical.center_name }})</p>
-    {% if medical.qr_code %}
-        <img src="data:image/png;base64,{{ medical.qr_code }}" alt="QR Code">
-    {% endif %}
-{% endfor %}
+{% extends 'layout.html' %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>Medical Staff List</h2>
+    <a href="{{ url_for('add_medical') }}" class="btn btn-primary">Add New Medical</a>
+</div>
+<div class="table-responsive">
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Assigned Center</th>
+                <th>Registration QR Code</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for medical in medicals %}
+            <tr>
+                <td>{{ medical.name }}</td>
+                <td>{{ medical.center_name }}</td>
+                <td>
+                    {% if medical.qr_code %}
+                    <img src="data:image/png;base64,{{ medical.qr_code }}" alt="QR Code for {{ medical.name }}" width="150">
+                    {% else %}
+                    No QR Code
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="3" class="text-center">No medicals found.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
