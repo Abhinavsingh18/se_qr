@@ -11,8 +11,8 @@ app = Flask(__name__)
 app.config["MONGO_URI"] = os.getenv("MONGO_URI")
 mongo = PyMongo(app)
 
-QR_FOLDER = "static/qr_codes"
-os.makedirs(QR_FOLDER, exist_ok=True)
+# QR_FOLDER = "static/qr_codes"
+# os.makedirs(QR_FOLDER, exist_ok=True)
 
 HOST_URL = os.getenv("HOST_URL")
 

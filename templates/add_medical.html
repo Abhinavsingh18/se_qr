@@ -1,20 +1,21 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Add Medical</title>
-</head>
-<body>
-    <h1>Add Medical</h1>
-    <form method="POST">
-        <label>Name:</label><input type="text" name="name" required><br>
-        <label>Center:</label>
-        <select name="center_id" required>
-            {% for c in centers %}
-                <option value="{{ c._id }}">{{ c.name }}</option>
-            {% endfor %}
-        </select><br>
-        <button type="submit">Add Medical</button>
-    </form>
-    <a href="{{ url_for('index') }}">Back</a>
-</body>
-</html>
+import io
+import base64
+import qrcode
+
+# Inside POST request after inserting the medical
+qr_data = f"{HOST_URL}/register/{medical_id}"
+
+# Generate QR in memory
+qr_img = qrcode.make(qr_data)
+buf = io.BytesIO()
+qr_img.save(buf, format='PNG')
+buf.seek(0)
+
+# Encode as base64 to store in MongoDB
+qr_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+
+# Save base64 string in the medical document
+mongo.db.medicals.update_one(
+    {"_id": medical_id},
+    {"$set": {"qr_code": qr_base64}}
+)
