@@ -2,7 +2,7 @@ import os
 import io
 import qrcode
 import base64
-from datetime import datetime
+from datetime import datetime, timedelta
 from bson import ObjectId
 from flask import Flask, request, redirect, url_for, flash, render_template_string, session
 from pymongo import MongoClient
@@ -14,7 +14,6 @@ from dotenv import load_dotenv
 
 # === ADMIN FACING TEMPLATES ===
 
-# Base layout for all ADMIN pages (includes navbar)
 ADMIN_LAYOUT_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="dark">
@@ -62,7 +61,6 @@ ADMIN_LAYOUT_TEMPLATE = """
 </html>
 """
 
-# Admin Login Page Template
 LOGIN_TEMPLATE = """
 <div class="row justify-content-center">
     <div class="col-md-5">
@@ -88,7 +86,6 @@ LOGIN_TEMPLATE = """
 </div>
 """
 
-# Admin dashboard template
 ADMIN_TEMPLATE = """
 <div class="row">
     <div class="col-lg-4 mb-4">
@@ -108,7 +105,6 @@ ADMIN_TEMPLATE = """
                 </form>
             </div>
         </div>
-
         <div class="card">
             <div class="card-header"><h4>Add New Medical Staff</h4></div>
             <div class="card-body">
@@ -133,7 +129,23 @@ ADMIN_TEMPLATE = """
     </div>
 
     <div class="col-lg-8">
-        <h2>System Overview</h2>
+        <div class="d-flex justify-content-between align-items-center">
+            <h2>System Overview</h2>
+        </div>
+        
+        <div class="card bg-dark my-3">
+         <div class="card-body">
+            <form method="GET" action="{{ url_for('admin_dashboard') }}" class="d-flex flex-wrap align-items-end gap-2">
+                <div class="flex-grow-1">
+                    <label for="filter_date" class="form-label">Show Registrations For:</label>
+                    <input type="date" name="filter_date" id="filter_date" class="form-control" value="{{ filter_date }}">
+                </div>
+                <button type="submit" class="btn btn-info">Apply Filter</button>
+                 <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">Today</a>
+            </form>
+          </div>
+        </div>
+
         <div class="accordion" id="centersAccordion">
             {% for center in centers_with_medicals %}
             <div class="accordion-item">
@@ -148,7 +160,7 @@ ADMIN_TEMPLATE = """
                         {% if center.medicals %}
                             <table class="table table-hover">
                                 <thead>
-                                    <tr><th>Name</th><th>QR Code</th><th>Registrations</th></tr>
+                                    <tr><th>Name</th><th>QR Code</th><th>Registrations on {{ filter_date }}</th></tr>
                                 </thead>
                                 <tbody>
                                 {% for medical in center.medicals %}
@@ -193,7 +205,6 @@ ADMIN_TEMPLATE = """
 
 # === PATIENT FACING TEMPLATES (No Navbar) ===
 
-# Patient registration form template (Full page, no layout)
 REGISTER_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="dark">
@@ -272,7 +283,6 @@ REGISTER_TEMPLATE = """
 </html>
 """
 
-# Success message template (Full page, no layout)
 SUCCESS_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="dark">
@@ -282,7 +292,7 @@ SUCCESS_TEMPLATE = """
     <title>Success</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { background-color: #212529; color: #dee2e6; display: flex; align-items: center; justify-content: center; height: 100vh; }
+        body { background-color: #212529; color: #dee2e6; display: flex; align-items: center; justify-content-center; height: 100vh; }
     </style>
 </head>
 <body>
@@ -327,7 +337,6 @@ def generate_qr_code_base64(data):
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 def render_admin_page(title, content_template, **context):
-    """Renders an ADMIN page by injecting content into the admin layout."""
     content = render_template_string(content_template, **context)
     return render_template_string(ADMIN_LAYOUT_TEMPLATE, title=title, content=content)
 
@@ -364,24 +373,48 @@ def logout():
 @app.route('/admin')
 def admin_dashboard():
     if 'logged_in' not in session: return redirect(url_for('login'))
+    
+    # --- Date Filter Logic ---
+    filter_date_str = request.args.get('filter_date', datetime.now().strftime('%Y-%m-%d'))
+    try:
+        start_of_day = datetime.strptime(filter_date_str, '%Y-%m-%d')
+    except ValueError:
+        flash("Invalid date format. Showing today's results.", "warning")
+        filter_date_str = datetime.now().strftime('%Y-%m-%d')
+        start_of_day = datetime.strptime(filter_date_str, '%Y-%m-%d')
+    end_of_day = start_of_day + timedelta(days=1)
+
     all_centers = list(centers_collection.find({}, sort=[('name', 1)]))
+    
     pipeline = [
         {"$sort": {"name": 1}},
         {"$lookup": {"from": "medicals", "localField": "_id", "foreignField": "center_id", "as": "medicals"}},
         {"$unwind": {"path": "$medicals", "preserveNullAndEmptyArrays": True}},
-        {"$lookup": {"from": "patients", "localField": "medicals._id", "foreignField": "medical_id", "as": "medicals.patients"}},
-        {"$unwind": {"path": "$medicals.patients", "preserveNullAndEmptyArrays": True}},
-        {"$sort": {"medicals.patients.timestamp": -1}},
+        {
+            "$lookup": {
+                "from": "patients",
+                "let": {"medical_id": "$medicals._id"},
+                "pipeline": [
+                    {
+                        "$match": {
+                            "$expr": {"$eq": ["$medical_id", "$$medical_id"]},
+                            "timestamp": {"$gte": start_of_day, "$lt": end_of_day}
+                        }
+                    },
+                    {"$sort": {"timestamp": -1}}
+                ],
+                "as": "medicals.patients"
+            }
+        },
         {"$group": {
             "_id": "$medicals._id", "center_id": {"$first": "$_id"}, "center_name": {"$first": "$name"},
             "center_address": {"$first": "$address"}, "medical_name": {"$first": "$medicals.name"},
-            "qr_code": {"$first": "$medicals.qr_code"}, "patients": {"$push": "$medicals.patients"}
+            "qr_code": {"$first": "$medicals.qr_code"}, "patients": {"$first": "$medicals.patients"}
         }},
         {"$group": {
             "_id": "$center_id", "name": {"$first": "$center_name"}, "address": {"$first": "$center_address"},
             "medicals": {"$push": {
-                "_id": "$_id", "name": "$medical_name", "qr_code": "$qr_code",
-                "patients": {"$filter": {"input": "$patients", "as": "p", "cond": {"$ne": ["$$p", {}]}}}
+                "_id": "$_id", "name": "$medical_name", "qr_code": "$qr_code", "patients": "$patients"
             }}
         }},
         {"$project": {
@@ -390,8 +423,16 @@ def admin_dashboard():
         }},
         {"$sort": {"name": 1}}
     ]
+
     centers_with_data = list(centers_collection.aggregate(pipeline))
-    return render_admin_page("Admin Dashboard", ADMIN_TEMPLATE, centers=all_centers, centers_with_medicals=centers_with_data)
+    
+    return render_admin_page(
+        "Admin Dashboard",
+        ADMIN_TEMPLATE,
+        centers=all_centers,
+        centers_with_medicals=centers_with_data,
+        filter_date=filter_date_str
+    )
 
 @app.route('/add-center', methods=['POST'])
 def add_center():
@@ -433,7 +474,6 @@ def register_patient(medical_id):
             patient_phone = request.form.get('phone')
             ultrasound_name = request.form.get('ultrasound_name')
 
-            # --- Server-Side Validation ---
             error = None
             if not patient_name or not patient_phone or not ultrasound_name:
                 error = "All fields are required."
