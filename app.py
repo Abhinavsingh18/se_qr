@@ -4,8 +4,8 @@ import qrcode
 import base64
 from datetime import datetime
 from bson import ObjectId
-from flask import Flask, request, redirect, url_for, flash, render_template_string
-from pymongo import MongoClient, DESCENDING
+from flask import Flask, request, redirect, url_for, flash, render_template_string, session
+from pymongo import MongoClient
 from dotenv import load_dotenv
 
 # ##############################################################################
@@ -36,7 +36,10 @@ LAYOUT_TEMPLATE = """
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
         <div class="container">
-            <a class="navbar-brand" href="{{ url_for('admin_dashboard') }}">QR MedReg Admin</a>
+            <a class="navbar-brand" href="{{ url_for('admin_dashboard') if session.get('logged_in') else url_for('login') }}">QR MedReg Admin</a>
+            {% if session.get('logged_in') %}
+            <a href="{{ url_for('logout') }}" class="btn btn-danger">Logout</a>
+            {% endif %}
         </div>
     </nav>
     <main class="container">
@@ -57,10 +60,34 @@ LAYOUT_TEMPLATE = """
 </html>
 """
 
+# Admin Login Page Template
+LOGIN_TEMPLATE = """
+<div class="row justify-content-center">
+    <div class="col-md-5">
+        <div class="card">
+            <div class="card-header text-center">
+                <h4>Admin Login</h4>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-3">
+                        <label for="username" class="form-label">Username</label>
+                        <input type="text" class="form-control" id="username" name="username" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="password" class="form-label">Password</label>
+                        <input type="password" class="form-control" id="password" name="password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Login</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+"""
+
 # Admin dashboard template
 ADMIN_TEMPLATE = """
-{% extends 'layout.html' %}
-{% block content %}
 <div class="row">
     <div class="col-lg-4 mb-4">
         <div class="card mb-4">
@@ -133,9 +160,13 @@ ADMIN_TEMPLATE = """
                                     <td>
                                         <span class="badge bg-info rounded-pill">{{ medical.patients | length }}</span>
                                         {% if medical.patients %}
-                                        <ul>
+                                        <ul class="list-unstyled mt-2">
                                             {% for patient in medical.patients %}
-                                            <li>{{ patient.name }} ({{ patient.phone }})</li>
+                                            <li class="mb-2">
+                                                {{ patient.name }} ({{ patient.phone }})
+                                                <br>
+                                                <small class="text-white-50">Ultrasound: {{ patient.ultrasound_name or 'N/A' }}</small>
+                                            </li>
                                             {% endfor %}
                                         </ul>
                                         {% endif %}
@@ -156,13 +187,10 @@ ADMIN_TEMPLATE = """
         </div>
     </div>
 </div>
-{% endblock %}
 """
 
 # Patient registration form template
 REGISTER_TEMPLATE = """
-{% extends 'layout.html' %}
-{% block content %}
 <div class="row justify-content-center">
     <div class="col-md-6">
         <div class="card">
@@ -181,6 +209,10 @@ REGISTER_TEMPLATE = """
                         <label for="phone" class="form-label">Phone Number</label>
                         <input type="tel" class="form-control" id="phone" name="phone" required>
                         <div class="invalid-feedback">Please enter your phone number.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="ultrasound_name" class="form-label">Ultrasound Name (Optional)</label>
+                        <input type="text" class="form-control" id="ultrasound_name" name="ultrasound_name">
                     </div>
                     <button type="submit" class="btn btn-primary w-100">Submit Registration</button>
                 </form>
@@ -203,19 +235,14 @@ REGISTER_TEMPLATE = """
         })
     })()
 </script>
-{% endblock %}
 """
 
 # Success message template
 SUCCESS_TEMPLATE = """
-{% extends 'layout.html' %}
-{% block content %}
 <div class="text-center py-5">
     <h1 class="display-4 text-success">Registration Successful!</h1>
     <p class="lead">Thank you. Your information has been submitted.</p>
-    <a href="{{ url_for('admin_dashboard') }}" class="btn btn-primary mt-3">Back to Admin</a>
 </div>
-{% endblock %}
 """
 
 # ##############################################################################
@@ -227,26 +254,20 @@ load_dotenv()
 
 # --- App Initialization ---
 app = Flask(__name__)
-app.secret_key = os.getenv("ADMIN_KEY", "default-secret-key")
+app.secret_key = os.getenv("ADMIN_KEY")
 
 # --- Environment Variables & Config ---
 MONGO_URI = os.getenv("MONGO_URI")
-HOST_URL = os.getenv("HOST_URL", "http://127.0.0.1:5000")
-if not MONGO_URI:
-    raise ValueError("MONGO_URI not found in environment variables.")
+HOST_URL = os.getenv("HOST_URL")
+ADMIN_USER = os.getenv("ADMIN_USER", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "password")
 
 # --- Database Setup ---
-try:
-    client = MongoClient(MONGO_URI)
-    db = client.get_database() # Auto-detect from URI
-    centers_collection = db.centers
-    medicals_collection = db.medicals
-    patients_collection = db.patients
-    client.admin.command('ping')
-    print("✅ Successfully connected to MongoDB!")
-except Exception as e:
-    print(f"❌ Error connecting to MongoDB: {e}")
-    exit()
+client = MongoClient(MONGO_URI)
+db = client.get_database()
+centers_collection = db.centers
+medicals_collection = db.medicals
+patients_collection = db.patients
 
 # ##############################################################################
 # ## 3. HELPER FUNCTIONS
@@ -260,8 +281,7 @@ def generate_qr_code_base64(data):
     img = qr.make_image(fill_color="black", back_color="white")
     
     buffered = io.BytesIO()
-# NEW CODE - FIXED
-    img.save(buffered)
+    img.save(buffered) # Removed format="PNG" for compatibility
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 def render_page(title, content_template, **context):
@@ -269,116 +289,87 @@ def render_page(title, content_template, **context):
     content = render_template_string(content_template, **context)
     return render_template_string(LAYOUT_TEMPLATE, title=title, content=content)
 
-
 # ##############################################################################
 # ## 4. FLASK ROUTES
 # ##############################################################################
 
 @app.route('/')
 def index():
-    """Redirects home to the admin dashboard."""
-    return redirect(url_for('admin_dashboard'))
+    """Redirects home to login or admin."""
+    if 'logged_in' in session:
+        return redirect(url_for('admin_dashboard'))
+    return redirect(url_for('login'))
+
+# --- AUTHENTICATION ROUTES ---
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        if username == ADMIN_USER and password == ADMIN_PASSWORD:
+            session['logged_in'] = True
+            flash('You were successfully logged in', 'success')
+            return redirect(url_for('admin_dashboard'))
+        else:
+            flash('Invalid credentials. Please try again.', 'danger')
+    return render_page("Admin Login", LOGIN_TEMPLATE)
+
+@app.route('/logout')
+def logout():
+    session.pop('logged_in', None)
+    flash('You were logged out.', 'info')
+    return redirect(url_for('login'))
+
+# --- ADMIN ROUTES ---
 
 @app.route('/admin')
 def admin_dashboard():
     """A single view for all admin tasks."""
-    try:
-        # Fetch all centers for the dropdown in the 'Add Medical' form
-        all_centers = list(centers_collection.find({}, sort=[('name', 1)]))
-
-        # Use an aggregation pipeline to fetch centers with their nested medicals and patients
-        pipeline = [
-            # Start with centers
-            {"$sort": {"name": 1}},
-            # Lookup medicals for each center
-            {
-                "$lookup": {
-                    "from": "medicals",
-                    "localField": "_id",
-                    "foreignField": "center_id",
-                    "as": "medicals"
-                }
-            },
-            # Unwind the medicals array to process each one
-            {"$unwind": {"path": "$medicals", "preserveNullAndEmptyArrays": True}},
-            # Lookup patients for each medical
-            {
-                "$lookup": {
-                    "from": "patients",
-                    "localField": "medicals._id",
-                    "foreignField": "medical_id",
-                    "as": "medicals.patients"
-                }
-            },
-            # Sort patients by timestamp descending for each medical
-            { "$unwind": { "path": "$medicals.patients", "preserveNullAndEmptyArrays": True }},
-            { "$sort": { "medicals.patients.timestamp": -1 }},
-            { 
-              "$group": {
-                "_id": "$medicals._id",
-                "center_id": { "$first": "$_id" },
-                "center_name": { "$first": "$name" },
-                "center_address": { "$first": "$address" },
-                "medical_name": { "$first": "$medicals.name" },
-                "qr_code": { "$first": "$medicals.qr_code" },
-                "patients": { "$push": "$medicals.patients" }
-              }
-            },
-            # Group medicals back into their centers
-            {
-                "$group": {
-                    "_id": "$center_id",
-                    "name": {"$first": "$center_name"},
-                    "address": {"$first": "$center_address"},
-                    "medicals": {
-                        "$push": {
-                            "_id": "$_id",
-                            "name": "$medical_name",
-                            "qr_code": "$qr_code",
-                            "patients": {
-                                "$filter": { # remove null patient placeholder if no patients exist
-                                    "input": "$patients",
-                                    "as": "p",
-                                    "cond": { "$ne": [ "$$p", {} ] }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            # Filter out centers that have no medicals (if preserveNullAndEmptyArrays wasn't perfect)
-            {
-                "$project": {
-                    "name": 1,
-                    "address": 1,
-                    "medicals": {
-                        "$filter": {
-                            "input": "$medicals",
-                            "as": "m",
-                            "cond": { "$ne": [ "$$m._id", None ] }
-                        }
-                    }
-                }
-            },
-            {"$sort": {"name": 1}}
-        ]
-        centers_with_data = list(centers_collection.aggregate(pipeline))
+    if 'logged_in' not in session:
+        return redirect(url_for('login'))
         
-        return render_page(
-            "Admin Dashboard",
-            ADMIN_TEMPLATE.replace("{% extends 'layout.html' %}", "").replace("{% block content %}", "").replace("{% endblock %}", ""),
-            centers=all_centers,
-            centers_with_medicals=centers_with_data
-        )
-
-    except Exception as e:
-        flash(f"An error occurred: {e}", "danger")
-        return render_page("Error", "<h2>Error loading dashboard.</h2>")
-
+    all_centers = list(centers_collection.find({}, sort=[('name', 1)]))
+    pipeline = [
+        {"$sort": {"name": 1}},
+        {"$lookup": {"from": "medicals", "localField": "_id", "foreignField": "center_id", "as": "medicals"}},
+        {"$unwind": {"path": "$medicals", "preserveNullAndEmptyArrays": True}},
+        {"$lookup": {"from": "patients", "localField": "medicals._id", "foreignField": "medical_id", "as": "medicals.patients"}},
+        {"$unwind": {"path": "$medicals.patients", "preserveNullAndEmptyArrays": True}},
+        {"$sort": {"medicals.patients.timestamp": -1}},
+        {"$group": {
+            "_id": "$medicals._id",
+            "center_id": {"$first": "$_id"},
+            "center_name": {"$first": "$name"},
+            "center_address": {"$first": "$address"},
+            "medical_name": {"$first": "$medicals.name"},
+            "qr_code": {"$first": "$medicals.qr_code"},
+            "patients": {"$push": "$medicals.patients"}
+        }},
+        {"$group": {
+            "_id": "$center_id",
+            "name": {"$first": "$center_name"},
+            "address": {"$first": "$center_address"},
+            "medicals": {"$push": {
+                "_id": "$_id",
+                "name": "$medical_name",
+                "qr_code": "$qr_code",
+                "patients": {"$filter": {"input": "$patients", "as": "p", "cond": {"$ne": ["$$p", {}]}}}
+            }}
+        }},
+        {"$project": {
+            "name": 1, "address": 1,
+            "medicals": {"$filter": {"input": "$medicals", "as": "m", "cond": {"$ne": ["$$m._id", None]}}}
+        }},
+        {"$sort": {"name": 1}}
+    ]
+    centers_with_data = list(centers_collection.aggregate(pipeline))
+    return render_page("Admin Dashboard", ADMIN_TEMPLATE, centers=all_centers, centers_with_medicals=centers_with_data)
 
 @app.route('/add-center', methods=['POST'])
 def add_center():
-    """Handles adding a new center."""
+    if 'logged_in' not in session:
+        return redirect(url_for('login'))
     name = request.form.get('name')
     address = request.form.get('address')
     if name and address:
@@ -390,31 +381,25 @@ def add_center():
 
 @app.route('/add-medical', methods=['POST'])
 def add_medical():
-    """Handles adding new medical staff."""
+    if 'logged_in' not in session:
+        return redirect(url_for('login'))
     name = request.form.get('name')
     center_id_str = request.form.get('center_id')
     if name and center_id_str:
         center_id = ObjectId(center_id_str)
-        # Insert medical to get its unique _id
-        new_medical = medicals_collection.insert_one({
-            'name': name, 'center_id': center_id, 'qr_code': ''
-        })
-        # Generate QR code with the URL pointing to the new medical's ID
+        new_medical = medicals_collection.insert_one({'name': name, 'center_id': center_id, 'qr_code': ''})
         registration_url = f"{HOST_URL}/register/{new_medical.inserted_id}"
         qr_code_b64 = generate_qr_code_base64(registration_url)
-        # Update the record with the QR code
-        medicals_collection.update_one(
-            {'_id': new_medical.inserted_id},
-            {'$set': {'qr_code': qr_code_b64}}
-        )
+        medicals_collection.update_one({'_id': new_medical.inserted_id}, {'$set': {'qr_code': qr_code_b64}})
         flash(f"Medical '{name}' added and QR code generated.", "success")
     else:
         flash("Medical's Name and assigned Center are required.", "danger")
     return redirect(url_for('admin_dashboard'))
 
+# --- PATIENT REGISTRATION ROUTES ---
+
 @app.route('/register/<medical_id>', methods=['GET', 'POST'])
 def register_patient(medical_id):
-    """Handles patient registration via QR code scan."""
     try:
         medical_obj_id = ObjectId(medical_id)
         medical = medicals_collection.find_one({'_id': medical_obj_id})
@@ -427,6 +412,7 @@ def register_patient(medical_id):
         if request.method == 'POST':
             patient_name = request.form.get('name')
             patient_phone = request.form.get('phone')
+            ultrasound_name = request.form.get('ultrasound_name', '') # Get the new field
 
             if not patient_name or not patient_phone:
                 flash("Name and Phone Number are required.", "danger")
@@ -435,28 +421,20 @@ def register_patient(medical_id):
             patients_collection.insert_one({
                 'name': patient_name,
                 'phone': patient_phone,
+                'ultrasound_name': ultrasound_name, # Save the new field
                 'medical_id': medical_obj_id,
                 'center_id': medical['center_id'],
                 'timestamp': datetime.utcnow()
             })
             return redirect(url_for('registration_success'))
             
-        return render_page(
-            "Patient Registration",
-            REGISTER_TEMPLATE.replace("{% extends 'layout.html' %}", "").replace("{% block content %}", "").replace("{% endblock %}", ""),
-            medical=medical,
-            center=center
-        )
+        return render_page("Patient Registration", REGISTER_TEMPLATE, medical=medical, center=center)
     except Exception:
         return render_page("Error", "<h2>Invalid registration link format.</h2>"), 400
 
 @app.route('/success')
 def registration_success():
-    """Shows a success message after registration."""
-    return render_page(
-        "Success",
-        SUCCESS_TEMPLATE.replace("{% extends 'layout.html' %}", "").replace("{% block content %}", "").replace("{% endblock %}", "")
-    )
+    return render_page("Success", SUCCESS_TEMPLATE)
 
 # ##############################################################################
 # ## 5. RUN THE APPLICATION
