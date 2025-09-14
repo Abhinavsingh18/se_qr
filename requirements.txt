@@ -3,4 +3,10 @@ pymongo==4.4.0
 python-dotenv==1.0.0
 qrcode==7.4
 # Pillow==10.0.0   <-- remove or comment this line
-flask_pymongo
+# flask_pymongo
+# Flask
+# pymongo
+# python-dotenv
+# qrcode
+# Pillow
+Werkzeug
