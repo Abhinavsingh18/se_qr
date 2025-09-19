@@ -2,9 +2,10 @@ import os
 import io
 import qrcode
 import base64
+import csv
 from datetime import datetime, timedelta
 from bson import ObjectId
-from flask import Flask, request, redirect, url_for, flash, render_template_string, session
+from flask import Flask, request, redirect, url_for, flash, render_template_string, session, Response
 from pymongo import MongoClient
 from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -38,7 +39,7 @@ UI_STYLES = """
 """
 
 ADMIN_LAYOUT_TEMPLATE = """
-<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>{{ title }} - Samriddhi Enterprises</title>
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale-1.0"><title>{{ title }} - Samriddhi Enterprises</title>
 """ + UI_STYLES + """
 </head><body>
 <nav class="navbar navbar-expand-lg navbar-dark navbar-custom mb-4">
@@ -46,7 +47,8 @@ ADMIN_LAYOUT_TEMPLATE = """
         <a class="navbar-brand" href="{{ url_for('index') }}"><i class="fas fa-qrcode me-2"></i><strong>Samriddhi Enterprises</strong></a>
         <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
             {% if session.get('logged_in') %}
-                <li class="nav-item"><a class="nav-link active" href="{{ url_for('admin_dashboard') }}"><i class="fas fa-user-shield me-1"></i>Super Admin</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_dashboard') }}"><i class="fas fa-user-shield me-1"></i>Admin Panel</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('analytics_dashboard') }}"><i class="fas fa-chart-line me-1"></i>Analytics</a></li>
                 <li class="nav-item"><a href="{{ url_for('logout') }}" class="btn btn-outline-light ms-2"><i class="fas fa-sign-out-alt me-1"></i>Logout</a></li>
             {% elif session.get('center_id') %}
                  <li class="nav-item"><a class="nav-link active" href="{{ url_for('center_dashboard') }}"><i class="fas fa-clinic-medical me-1"></i>Center Dashboard</a></li>
@@ -69,7 +71,6 @@ ADMIN_LAYOUT_TEMPLATE = """
     {{ content | safe }}
 </main>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-</body></html>
 """
 
 # === SUPER ADMIN TEMPLATES ===
@@ -129,10 +130,9 @@ ADMIN_TEMPLATE = """
         </form></div></div></div>
         <div class="col-lg-8">
             <div class="card mb-4"><div class="card-body">
-                <form method="GET" action="{{ url_for('admin_dashboard') }}" class="d-flex flex-wrap align-items-end gap-2">
-                    <div class="flex-grow-1"><label class="form-label">Registrations For:</label><input type="date" name="filter_date" class="form-control" value="{{ filter_date }}"></div>
-                    <button type="submit" class="btn btn-info text-white"><i class="fas fa-filter me-1"></i>Apply</button>
-                    <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">Today</a>
+                <form method="GET" action="{{ url_for('admin_dashboard') }}" class="row g-2 align-items-end">
+                    <div class="col-sm-8"><label class="form-label">Registrations For:</label><input type="date" name="filter_date" class="form-control" value="{{ filter_date }}"></div>
+                    <div class="col-sm-4"><button type="submit" class="btn btn-info text-white w-100"><i class="fas fa-filter me-1"></i>Apply</button></div>
                 </form>
             </div></div>
             {% for center in centers_with_medicals %}
@@ -143,13 +143,12 @@ ADMIN_TEMPLATE = """
                     <div class="row align-items-center">
                         <div class="col-8"><h6 class="mb-1">{{ medical.name }}</h6><span class="badge bg-primary rounded-pill">{{ medical.patients | length }} Registrations</span></div>
                         <div class="col-2 text-center"><img src="data:image/png;base64,{{ medical.qr_code }}" alt="QR" style="width: 60px; height: 60px;"></div>
-                        <div class="col-2 text-end"><button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#patients-{{ medical._id }}"><i class="fas fa-users me-1"></i> Patients</button></div>
+                        <div class="col-2 text-end"><button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#patients-{{ medical._id }}"><i class="fas fa-users me-1"></i></button></div>
                     </div>
                     <div class="collapse mt-3" id="patients-{{ medical._id }}">
                         <ul class="list-unstyled patient-list border-top pt-2">
                             {% for patient in medical.patients %}
-                            <li>
-                                <strong>{{ patient.name }}</strong> ({{ patient.phone }})
+                            <li><strong>{{ patient.name }}</strong> ({{ patient.phone }})
                                 {% set status_color = 'warning' if patient.status == 'Pending' else 'info' if patient.status == 'Running' else 'success' %}
                                 <span class="badge bg-{{ status_color }} text-dark ms-2">{{ patient.status }}</span>
                                 <br><small class="text-muted">Ultrasound: {{ patient.ultrasound_name or 'N/A' }}</small>
@@ -170,6 +169,40 @@ ADMIN_TEMPLATE = """
 </div>
 """
 
+ANALYTICS_TEMPLATE = """
+<div class="row g-4">
+    <div class="col-12"><h4 class="mb-3"><i class="fas fa-chart-line me-2"></i>Analytics Dashboard</h4></div>
+    <div class="col-md-12"><div class="card"><div class="card-header">Daily Registrations (Last 30 Days)</div>
+        <div class="card-body"><canvas id="dailyRegistrationsChart"></canvas></div>
+    </div></div>
+    <div class="col-md-6"><div class="card"><div class="card-header">Top 5 Performing Centers</div>
+        <div class="card-body"><canvas id="topCentersChart"></canvas></div>
+    </div></div>
+    <div class="col-md-6"><div class="card"><div class="card-header">Top 5 Performing Medical Staff</div>
+        <div class="card-body"><canvas id="topMedicalsChart"></canvas></div>
+    </div></div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const chartColors = ['#0d6efd', '#6c757d', '#198754', '#ffc107', '#0dcaf0'];
+    new Chart(document.getElementById('dailyRegistrationsChart'), {
+        type: 'line',
+        data: { labels: {{ daily_stats.labels|tojson }}, datasets: [{ label: 'Registrations', data: {{ daily_stats.data|tojson }}, tension: 0.1, fill: false, borderColor: chartColors[0] }] },
+        options: { scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+    });
+    new Chart(document.getElementById('topCentersChart'), {
+        type: 'bar',
+        data: { labels: {{ top_centers.labels|tojson }}, datasets: [{ label: 'Total Registrations', data: {{ top_centers.data|tojson }}, backgroundColor: chartColors }] },
+        options: { indexAxis: 'y', scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } }
+    });
+    new Chart(document.getElementById('topMedicalsChart'), {
+        type: 'bar',
+        data: { labels: {{ top_medicals.labels|tojson }}, datasets: [{ label: 'Total Registrations', data: {{ top_medicals.data|tojson }}, backgroundColor: chartColors }] },
+        options: { indexAxis: 'y', scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } }
+    });
+</script>
+"""
+
 # === CENTER ADMIN TEMPLATES ===
 CENTER_LOGIN_TEMPLATE = """
 <div class="row justify-content-center mt-5"><div class="col-md-5"><div class="card">
@@ -184,9 +217,10 @@ CENTER_LOGIN_TEMPLATE = """
 CENTER_DASHBOARD_TEMPLATE = """
 <h4 class="mb-3">Dashboard for {{ session['center_name'] }}</h4>
 <div class="card mb-4"><div class="card-body">
-    <form method="GET" action="{{ url_for('center_dashboard') }}" class="d-flex flex-wrap align-items-end gap-2">
-        <div class="flex-grow-1"><label class="form-label">Registrations For:</label><input type="date" name="filter_date" class="form-control" value="{{ filter_date }}"></div>
-        <button type="submit" class="btn btn-info text-white"><i class="fas fa-filter me-1"></i>Apply</button><a href="{{ url_for('center_dashboard') }}" class="btn btn-secondary">Today</a>
+    <form method="GET" action="{{ url_for('center_dashboard') }}" class="row g-2 align-items-end">
+        <div class="col-sm-6"><label class="form-label">Search Name/Phone:</label><input type="text" name="search_query" class="form-control" value="{{ search_query or '' }}"></div>
+        <div class="col-sm-4"><label class="form-label">Registrations For:</label><input type="date" name="filter_date" class="form-control" value="{{ filter_date }}"></div>
+        <div class="col-sm-2"><button type="submit" class="btn btn-primary w-100"><i class="fas fa-search me-1"></i>Filter</button></div>
     </form>
 </div></div>
 <div class="card">
@@ -210,11 +244,11 @@ CENTER_DASHBOARD_TEMPLATE = """
                     {% if p.status != 'Complete' %}
                     <div class="btn-group btn-group-sm">
                     {% if p.status == 'Pending' %}
-                        <form action="{{ url_for('update_patient_status', patient_id=p._id, filter_date=filter_date) }}" method="POST" class="d-inline">
+                        <form action="{{ url_for('update_patient_status', patient_id=p._id) }}" method="POST" class="d-inline">
                             <input type="hidden" name="new_status" value="Running"><button type="submit" class="btn btn-info text-white" title="Mark as Running"><i class="fas fa-play"></i></button>
                         </form>
                     {% endif %}
-                        <form action="{{ url_for('update_patient_status', patient_id=p._id, filter_date=filter_date) }}" method="POST" class="d-inline">
+                        <form action="{{ url_for('update_patient_status', patient_id=p._id) }}" method="POST" class="d-inline">
                             <input type="hidden" name="new_status" value="Complete"><button type="submit" class="btn btn-success" title="Mark as Complete"><i class="fas fa-check"></i></button>
                         </form>
                     </div>
@@ -222,7 +256,7 @@ CENTER_DASHBOARD_TEMPLATE = """
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="4" class="text-center text-muted p-4">No registrations found for this date.</td></tr>
+            <tr><td colspan="4" class="text-center text-muted p-4">No registrations found.</td></tr>
             {% endfor %}
             </tbody>
         </table>
@@ -272,13 +306,7 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv("ADMIN_KEY")
 
-# --- Cloudinary Configuration ---
-cloudinary.config(
-    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
-    api_key=os.getenv("CLOUDINARY_API_KEY"),
-    api_secret=os.getenv("CLOUDINARY_API_SECRET")
-)
-
+cloudinary.config(cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"), api_key=os.getenv("CLOUDINARY_API_KEY"), api_secret=os.getenv("CLOUDINARY_API_SECRET"))
 client = MongoClient(os.getenv("MONGO_URI"))
 db = client.get_database()
 centers_collection, medicals_collection, patients_collection = db.centers, db.medicals, db.patients
@@ -289,11 +317,9 @@ def render_page(title, content, **context):
     return render_template_string(ADMIN_LAYOUT_TEMPLATE, title=title, content=render_template_string(content, **context))
 
 def generate_qr_code_base64(data):
-    qr = qrcode.QRCode(version=1, box_size=10, border=4)
-    qr.add_data(data)
-    img = qr.make_image(fill_color="black", back_color="white")
+    img = qrcode.make(data)
     buffered = io.BytesIO()
-    img.save(buffered)
+    img.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 # ##############################################################################
@@ -369,16 +395,15 @@ def add_center():
             "name": form['name'], "address": form['address'], "username": form['username'],
             "password": generate_password_hash(form['password'])
         })
-        flash(f"Center '{form['name']}' created successfully.", "success")
+        flash(f"Center '{form['name']}' created.", "success")
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/reset-center-password/<center_id>', methods=['POST'])
 def reset_center_password(center_id):
     if 'logged_in' not in session: return redirect(url_for('login'))
-    new_password = request.form.get('new_password')
-    hashed_password = generate_password_hash(new_password)
+    hashed_password = generate_password_hash(request.form.get('new_password'))
     centers_collection.update_one({"_id": ObjectId(center_id)}, {"$set": {"password": hashed_password}})
-    flash("Password has been reset successfully.", "success")
+    flash("Password has been reset.", "success")
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/add-medical', methods=['POST'])
@@ -386,12 +411,11 @@ def add_medical():
     if 'logged_in' not in session: return redirect(url_for('login'))
     name, center_id_str = request.form.get('name'), request.form.get('center_id')
     if name and center_id_str:
-        center_id = ObjectId(center_id_str)
-        new_medical = medicals_collection.insert_one({'name': name, 'center_id': center_id, 'qr_code': ''})
+        new_medical = medicals_collection.insert_one({'name': name, 'center_id': ObjectId(center_id_str), 'qr_code': ''})
         registration_url = f"{HOST_URL}/register/{new_medical.inserted_id}"
         qr_code_b64 = generate_qr_code_base64(registration_url)
         medicals_collection.update_one({'_id': new_medical.inserted_id}, {'$set': {'qr_code': qr_code_b64}})
-        flash(f"Medical staff '{name}' added successfully.", "success")
+        flash(f"Medical staff '{name}' added.", "success")
     return redirect(url_for('admin_dashboard'))
 
 # ##############################################################################
@@ -402,11 +426,9 @@ def center_login():
     if request.method == 'POST':
         center = centers_collection.find_one({"username": request.form['username']})
         if center and check_password_hash(center.get('password', ''), request.form['password']):
-            session['center_id'] = str(center['_id'])
-            session['center_name'] = center['name']
+            session['center_id'], session['center_name'] = str(center['_id']), center['name']
             return redirect(url_for('center_dashboard'))
-        else:
-            flash("Invalid center username or password.", "danger")
+        flash("Invalid center username or password.", "danger")
     return render_page("Center Login", CENTER_LOGIN_TEMPLATE)
 
 @app.route('/center-logout')
@@ -419,35 +441,63 @@ def center_logout():
 def center_dashboard():
     if 'center_id' not in session: return redirect(url_for('center_login'))
     filter_date_str = request.args.get('filter_date', datetime.now().strftime('%Y-%m-%d'))
+    search_query = request.args.get('search_query', '')
     start_of_day = datetime.strptime(filter_date_str, '%Y-%m-%d')
     end_of_day = start_of_day + timedelta(days=1)
     
-    patients = list(patients_collection.find(
-        {"center_id": ObjectId(session['center_id']), "timestamp": {"$gte": start_of_day, "$lt": end_of_day}},
-        sort=[("timestamp", -1)]
-    ))
-    return render_page(f"{session['center_name']} Dashboard", CENTER_DASHBOARD_TEMPLATE, patients=patients, filter_date=filter_date_str)
+    query = {"center_id": ObjectId(session['center_id']), "timestamp": {"$gte": start_of_day, "$lt": end_of_day}}
+    if search_query:
+        query["$or"] = [
+            {"name": {"$regex": search_query, "$options": "i"}},
+            {"phone": {"$regex": search_query, "$options": "i"}}
+        ]
+    patients = list(patients_collection.find(query, sort=[("timestamp", -1)]))
+    return render_page(f"{session['center_name']} Dashboard", CENTER_DASHBOARD_TEMPLATE, patients=patients, filter_date=filter_date_str, search_query=search_query)
 
 @app.route('/update-patient-status/<patient_id>', methods=['POST'])
 def update_patient_status(patient_id):
     if 'center_id' not in session: return redirect(url_for('center_login'))
     new_status = request.form.get('new_status')
-    filter_date = request.args.get('filter_date', datetime.now().strftime('%Y-%m-%d'))
-
-    if new_status not in ['Pending', 'Running', 'Complete']:
-        flash("Invalid status.", "danger")
-        return redirect(url_for('center_dashboard', filter_date=filter_date))
-
     patient = patients_collection.find_one({"_id": ObjectId(patient_id), "center_id": ObjectId(session['center_id'])})
-    if patient:
+    if patient and new_status in ['Pending', 'Running', 'Complete']:
         patients_collection.update_one({"_id": ObjectId(patient_id)}, {"$set": {"status": new_status}})
-        flash(f"Patient status updated to {new_status}.", "success")
-    else:
-        flash("Unauthorized action or patient not found.", "danger")
-    return redirect(url_for('center_dashboard', filter_date=filter_date))
+        flash(f"Status updated to {new_status}.", "success")
+    return redirect(request.referrer or url_for('center_dashboard'))
 
 # ##############################################################################
-# ## 5. PATIENT REGISTRATION ROUTES
+# ## 5. DATA EXPORT & ANALYTICS ROUTES
+# ##############################################################################
+@app.route('/analytics')
+def analytics_dashboard():
+    if 'logged_in' not in session: return redirect(url_for('login'))
+    thirty_days_ago = datetime.now() - timedelta(days=30)
+    daily_pipeline = [
+        {"$match": {"timestamp": {"$gte": thirty_days_ago}}},
+        {"$group": {"_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}}, "count": {"$sum": 1}}},
+        {"$sort": {"_id": 1}}
+    ]
+    daily_data = list(patients_collection.aggregate(daily_pipeline))
+    daily_stats = {'labels': [d['_id'] for d in daily_data], 'data': [d['count'] for d in daily_data]}
+    top_centers_pipeline = [
+        {"$group": {"_id": "$center_id", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}}, {"$limit": 5},
+        {"$lookup": {"from": "centers", "localField": "_id", "foreignField": "_id", "as": "center_info"}},
+        {"$unwind": "$center_info"}
+    ]
+    top_centers_data = list(patients_collection.aggregate(top_centers_pipeline))
+    top_centers = {'labels': [c['center_info']['name'] for c in top_centers_data], 'data': [c['count'] for c in top_centers_data]}
+    top_medicals_pipeline = [
+        {"$group": {"_id": "$medical_id", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}}, {"$limit": 5},
+        {"$lookup": {"from": "medicals", "localField": "_id", "foreignField": "_id", "as": "medical_info"}},
+        {"$unwind": "$medical_info"}
+    ]
+    top_medicals_data = list(patients_collection.aggregate(top_medicals_pipeline))
+    top_medicals = {'labels': [m['medical_info']['name'] for m in top_medicals_data], 'data': [m['count'] for m in top_medicals_data]}
+    return render_page("Analytics", ANALYTICS_TEMPLATE, daily_stats=daily_stats, top_centers=top_centers, top_medicals=top_medicals)
+
+# ##############################################################################
+# ## 6. PATIENT REGISTRATION ROUTES
 # ##############################################################################
 @app.route('/register/<medical_id>', methods=['GET', 'POST'])
 def register_patient(medical_id):
@@ -457,15 +507,10 @@ def register_patient(medical_id):
         center = centers_collection.find_one({'_id': medical['center_id']})
         if request.method == 'POST':
             photo1_url, photo2_url = '', ''
-            photo1 = request.files.get('photo1')
-            photo2 = request.files.get('photo2')
-            if photo1 and photo1.filename != '':
-                upload_result = cloudinary.uploader.upload(photo1)
-                photo1_url = upload_result.get('secure_url')
-            if photo2 and photo2.filename != '':
-                upload_result = cloudinary.uploader.upload(photo2)
-                photo2_url = upload_result.get('secure_url')
-
+            if 'photo1' in request.files and request.files['photo1'].filename != '':
+                photo1_url = cloudinary.uploader.upload(request.files['photo1']).get('secure_url')
+            if 'photo2' in request.files and request.files['photo2'].filename != '':
+                photo2_url = cloudinary.uploader.upload(request.files['photo2']).get('secure_url')
             patients_collection.insert_one({
                 'name': request.form['name'], 'phone': request.form['phone'], 'ultrasound_name': request.form['ultrasound_name'],
                 'medical_id': ObjectId(medical_id), 'center_id': medical['center_id'], 
@@ -482,7 +527,7 @@ def registration_success():
     return render_template_string(SUCCESS_TEMPLATE)
 
 # ##############################################################################
-# ## 6. RUN APP
+# ## 7. RUN APP
 # ##############################################################################
 if __name__ == '__main__':
     app.run(host=os.getenv("FLASK_HOST", "0.0.0.0"), port=int(os.getenv("FLASK_PORT", 5000)), debug=True)
