@@ -39,7 +39,7 @@ UI_STYLES = """
 """
 
 ADMIN_LAYOUT_TEMPLATE = """
-<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale-1.0"><title>{{ title }} - Samriddhi Enterprises</title>
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>{{ title }} - Samriddhi Enterprises</title>
 """ + UI_STYLES + """
 </head><body>
 <nav class="navbar navbar-expand-lg navbar-dark navbar-custom mb-4">
@@ -71,6 +71,7 @@ ADMIN_LAYOUT_TEMPLATE = """
     {{ content | safe }}
 </main>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body></html>
 """
 
 # === SUPER ADMIN TEMPLATES ===
@@ -218,8 +219,8 @@ CENTER_DASHBOARD_TEMPLATE = """
 <h4 class="mb-3">Dashboard for {{ session['center_name'] }}</h4>
 <div class="card mb-4"><div class="card-body">
     <form method="GET" action="{{ url_for('center_dashboard') }}" class="row g-2 align-items-end">
-        <div class="col-sm-6"><label class="form-label">Search Name/Phone:</label><input type="text" name="search_query" class="form-control" value="{{ search_query or '' }}"></div>
-        <div class="col-sm-4"><label class="form-label">Registrations For:</label><input type="date" name="filter_date" class="form-control" value="{{ filter_date }}"></div>
+        <div class="col-sm-5"><label class="form-label">Search Name/Phone:</label><input type="text" name="search_query" class="form-control" value="{{ search_query or '' }}"></div>
+        <div class="col-sm-5"><label class="form-label">Registrations For:</label><input type="date" name="filter_date" class="form-control" value="{{ filter_date }}"></div>
         <div class="col-sm-2"><button type="submit" class="btn btn-primary w-100"><i class="fas fa-search me-1"></i>Filter</button></div>
     </form>
 </div></div>
