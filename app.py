@@ -320,7 +320,7 @@ def render_page(title, content, **context):
 def generate_qr_code_base64(data):
     img = qrcode.make(data)
     buffered = io.BytesIO()
-    img.save(buffered, format="PNG")
+    img.save(buffered)
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 # ##############################################################################
