@@ -9,4 +9,5 @@ qrcode==7.4
 # python-dotenv
 # qrcode
 # Pillow
-Werkzeug
+Werkzeug 
+cloudinary

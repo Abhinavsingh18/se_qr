@@ -8,6 +8,8 @@ from flask import Flask, request, redirect, url_for, flash, render_template_stri
 from pymongo import MongoClient
 from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
+import cloudinary
+import cloudinary.uploader
 
 # ##############################################################################
 # ## 1. HTML TEMPLATES AS PYTHON STRINGS
@@ -31,6 +33,7 @@ UI_STYLES = """
     .form-control:focus, .form-select:focus { border-color: var(--primary-blue); box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25); }
     .patient-list li { padding: 0.75rem; border-bottom: 1px solid var(--light-blue); }
     .patient-list li:last-child { border-bottom: none; }
+    .photo-thumbnail { width: 40px; height: 40px; object-fit: cover; border-radius: 0.25rem; margin-right: 5px; }
 </style>
 """
 
@@ -57,13 +60,11 @@ ADMIN_LAYOUT_TEMPLATE = """
 </nav>
 <main class="container">
     {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-            {% for category, message in messages %}
-            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-                {{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-            </div>
-            {% endfor %}
-        {% endif %}
+        {% if messages %}{% for category, message in messages %}
+        <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+            {{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {% endfor %}{% endif %}
     {% endwith %}
     {{ content | safe }}
 </main>
@@ -84,110 +85,88 @@ LOGIN_TEMPLATE = """
 
 ADMIN_TEMPLATE = """
 <div class="row g-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header"><i class="fas fa-hospital me-2"></i>Center Management</div>
-            <div class="card-body">
-                <h5 class="card-title">Create New Center with Login</h5>
-                <form action="{{ url_for('add_center') }}" method="POST" class="row g-3 align-items-end p-2 border rounded bg-light mb-4">
-                    <div class="col-md-3"><label class="form-label">Center Name</label><input type="text" name="name" class="form-control" required></div>
-                    <div class="col-md-3"><label class="form-label">Address</label><input type="text" name="address" class="form-control" required></div>
-                    <div class="col-md-2"><label class="form-label">Set Username</label><input type="text" name="username" class="form-control" required></div>
-                    <div class="col-md-2"><label class="form-label">Set Password</label><input type="password" name="password" class="form-control" required></div>
-                    <div class="col-md-2"><button type="submit" class="btn btn-primary w-100"><i class="fas fa-plus me-1"></i>Create</button></div>
+    <div class="col-12"><div class="card"><div class="card-header"><i class="fas fa-hospital me-2"></i>Center Management</div>
+    <div class="card-body">
+        <h5 class="card-title">Create New Center</h5>
+        <form action="{{ url_for('add_center') }}" method="POST" class="row g-3 align-items-end p-2 border rounded bg-light mb-4">
+            <div class="col-md-3"><label class="form-label">Center Name</label><input type="text" name="name" class="form-control" required></div>
+            <div class="col-md-3"><label class="form-label">Address</label><input type="text" name="address" class="form-control" required></div>
+            <div class="col-md-2"><label class="form-label">Username</label><input type="text" name="username" class="form-control" required></div>
+            <div class="col-md-2"><label class="form-label">Password</label><input type="password" name="password" class="form-control" required></div>
+            <div class="col-md-2"><button type="submit" class="btn btn-primary w-100"><i class="fas fa-plus me-1"></i>Create</button></div>
+        </form>
+        <h5 class="card-title mt-4">Existing Centers</h5>
+        <div class="table-responsive"><table class="table table-hover">
+            <thead><tr><th>Name</th><th>Address</th><th>Username</th><th>Action</th></tr></thead>
+            <tbody>
+            {% for center in centers %}
+            <tr>
+                <td>{{ center.name }}</td><td>{{ center.address }}</td><td>{{ center.username or 'N/A' }}</td>
+                <td><button class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#resetPassModal-{{center._id}}"><i class="fas fa-key me-1"></i>Reset Password</button></td>
+            </tr>
+            <div class="modal fade" id="resetPassModal-{{center._id}}"><div class="modal-dialog"><div class="modal-content">
+                <form action="{{ url_for('reset_center_password', center_id=center._id) }}" method="POST">
+                    <div class="modal-header"><h5 class="modal-title">Reset Password for {{center.name}}</h5></div>
+                    <div class="modal-body"><label class="form-label">New Password</label><input type="password" name="new_password" class="form-control" required></div>
+                    <div class="modal-footer"><button type="submit" class="btn btn-danger">Confirm Reset</button></div>
                 </form>
-                <h5 class="card-title mt-4">Existing Centers</h5>
-                <div class="table-responsive"><table class="table table-hover">
-                    <thead><tr><th>Name</th><th>Address</th><th>Username</th><th>Action</th></tr></thead>
-                    <tbody>
-                    {% for center in centers %}
-                    <tr>
-                        <td>{{ center.name }}</td><td>{{ center.address }}</td><td>{{ center.username or 'N/A' }}</td>
-                        <td><button class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#resetPassModal-{{center._id}}"><i class="fas fa-key me-1"></i>Reset Password</button></td>
-                    </tr>
-                    <div class="modal fade" id="resetPassModal-{{center._id}}"><div class="modal-dialog"><div class="modal-content">
-                        <form action="{{ url_for('reset_center_password', center_id=center._id) }}" method="POST">
-                            <div class="modal-header"><h5 class="modal-title">Reset Password for {{center.name}}</h5></div>
-                            <div class="modal-body"><label class="form-label">New Password</label><input type="password" name="new_password" class="form-control" required></div>
-                            <div class="modal-footer"><button type="submit" class="btn btn-danger">Confirm Reset</button></div>
-                        </form>
-                    </div></div></div>
-                    {% endfor %}
-                    </tbody>
-                </table></div>
+            </div></div></div>
+            {% endfor %}
+            </tbody>
+        </table></div>
+    </div></div></div>
+    <div class="col-12"><h4 class="mt-4">System Overview</h4><div class="row">
+        <div class="col-lg-4"><div class="card"><div class="card-header"><i class="fas fa-user-md me-2"></i>Add Medical Staff</div>
+        <div class="card-body"><form action="{{ url_for('add_medical') }}" method="POST">
+            <div class="mb-3"><label class="form-label">Medical's Name</label><input type="text" name="name" class="form-control" required></div>
+            <div class="mb-3"><label class="form-label">Assign to Center</label>
+                <select class="form-select" name="center_id" required>
+                    <option value="" disabled selected>Select...</option>
+                    {% for center in centers %}<option value="{{ center._id }}">{{ center.name }}</option>{% endfor %}
+                </select>
             </div>
-        </div>
-    </div>
-    
-    <div class="col-12">
-        <h4 class="mt-4">System Overview</h4>
-        <div class="row">
-            <div class="col-lg-4">
-                <div class="card">
-                     <div class="card-header"><i class="fas fa-user-md me-2"></i>Add Medical Staff</div>
-                     <div class="card-body">
-                        <form action="{{ url_for('add_medical') }}" method="POST">
-                            <div class="mb-3"><label class="form-label">Medical's Name</label><input type="text" name="name" class="form-control" required></div>
-                            <div class="mb-3"><label class="form-label">Assign to Center</label>
-                                <select class="form-select" name="center_id" required>
-                                    <option value="" disabled selected>Select a center...</option>
-                                    {% for center in centers %}<option value="{{ center._id }}">{{ center.name }}</option>{% endfor %}
-                                </select>
-                            </div>
-                            <button type="submit" class="btn btn-primary w-100"><i class="fas fa-qrcode me-1"></i>Add & Gen QR</button>
-                        </form>
+            <button type="submit" class="btn btn-primary w-100"><i class="fas fa-qrcode me-1"></i>Add & Gen QR</button>
+        </form></div></div></div>
+        <div class="col-lg-8">
+            <div class="card mb-4"><div class="card-body">
+                <form method="GET" action="{{ url_for('admin_dashboard') }}" class="d-flex flex-wrap align-items-end gap-2">
+                    <div class="flex-grow-1"><label class="form-label">Registrations For:</label><input type="date" name="filter_date" class="form-control" value="{{ filter_date }}"></div>
+                    <button type="submit" class="btn btn-info text-white"><i class="fas fa-filter me-1"></i>Apply</button>
+                    <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">Today</a>
+                </form>
+            </div></div>
+            {% for center in centers_with_medicals %}
+            <div class="card mb-3"><div class="card-header">{{ center.name }}</div>
+            <div class="list-group list-group-flush">
+                {% for medical in center.medicals %}
+                <div class="list-group-item p-3">
+                    <div class="row align-items-center">
+                        <div class="col-8"><h6 class="mb-1">{{ medical.name }}</h6><span class="badge bg-primary rounded-pill">{{ medical.patients | length }} Registrations</span></div>
+                        <div class="col-2 text-center"><img src="data:image/png;base64,{{ medical.qr_code }}" alt="QR" style="width: 60px; height: 60px;"></div>
+                        <div class="col-2 text-end"><button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#patients-{{ medical._id }}"><i class="fas fa-users me-1"></i> Patients</button></div>
                     </div>
-                </div>
-            </div>
-            <div class="col-lg-8">
-                <div class="card mb-4"><div class="card-body">
-                    <form method="GET" action="{{ url_for('admin_dashboard') }}" class="d-flex flex-wrap align-items-end gap-2">
-                        <div class="flex-grow-1"><label class="form-label">Show Registrations For:</label><input type="date" name="filter_date" class="form-control" value="{{ filter_date }}"></div>
-                        <button type="submit" class="btn btn-info text-white"><i class="fas fa-filter me-1"></i>Apply</button>
-                        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary">Today</a>
-                    </form>
-                </div></div>
-                
-                {% for center in centers_with_medicals %}
-                <div class="card mb-3">
-                    <div class="card-header">{{ center.name }}</div>
-                    <div class="list-group list-group-flush">
-                        {% for medical in center.medicals %}
-                        <div class="list-group-item p-3">
-                            <div class="row align-items-center">
-                                <div class="col-8">
-                                    <h6 class="mb-1">{{ medical.name }}</h6>
-                                    <span class="badge bg-primary rounded-pill">{{ medical.patients | length }} Registrations</span>
+                    <div class="collapse mt-3" id="patients-{{ medical._id }}">
+                        <ul class="list-unstyled patient-list border-top pt-2">
+                            {% for patient in medical.patients %}
+                            <li>
+                                <strong>{{ patient.name }}</strong> ({{ patient.phone }})
+                                {% set status_color = 'warning' if patient.status == 'Pending' else 'info' if patient.status == 'Running' else 'success' %}
+                                <span class="badge bg-{{ status_color }} text-dark ms-2">{{ patient.status }}</span>
+                                <br><small class="text-muted">Ultrasound: {{ patient.ultrasound_name or 'N/A' }}</small>
+                                <div>
+                                    {% if patient.get('photo_url_1') %}<a href="{{ patient.photo_url_1 }}" target="_blank"><img src="{{ patient.photo_url_1 }}" class="photo-thumbnail"></a>{% endif %}
+                                    {% if patient.get('photo_url_2') %}<a href="{{ patient.photo_url_2 }}" target="_blank"><img src="{{ patient.photo_url_2 }}" class="photo-thumbnail"></a>{% endif %}
                                 </div>
-                                <div class="col-2 text-center">
-                                    <img src="data:image/png;base64,{{ medical.qr_code }}" alt="QR Code" style="width: 60px; height: 60px;">
-                                </div>
-                                <div class="col-2 text-end">
-                                    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#patients-{{ medical._id }}">
-                                        <i class="fas fa-users me-1"></i> Patients
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="collapse mt-3" id="patients-{{ medical._id }}">
-                                <ul class="list-unstyled patient-list border-top pt-2">
-                                    {% for patient in medical.patients %}
-                                    <li>
-                                        <strong>{{ patient.name }}</strong> ({{ patient.phone }})
-                                        {% set status_color = 'warning' if patient.status == 'Pending' else 'info' if patient.status == 'Running' else 'success' %}
-                                        <span class="badge bg-{{ status_color }} text-dark ms-2">{{ patient.status }}</span>
-                                        <br><small class="text-muted">Ultrasound: {{ patient.ultrasound_name or 'N/A' }}</small>
-                                    </li>
-                                    {% else %}<li><small class="text-muted">No registrations on this date.</small></li>{% endfor %}
-                                </ul>
-                            </div>
-                        </div>
-                        {% endfor %}
+                            </li>
+                            {% else %}<li><small class="text-muted">No registrations on this date.</small></li>{% endfor %}
+                        </ul>
                     </div>
                 </div>
                 {% endfor %}
-            </div>
+            </div></div>
+            {% endfor %}
         </div>
-    </div>
+    </div></div>
 </div>
 """
 
@@ -206,7 +185,7 @@ CENTER_DASHBOARD_TEMPLATE = """
 <h4 class="mb-3">Dashboard for {{ session['center_name'] }}</h4>
 <div class="card mb-4"><div class="card-body">
     <form method="GET" action="{{ url_for('center_dashboard') }}" class="d-flex flex-wrap align-items-end gap-2">
-        <div class="flex-grow-1"><label class="form-label">Show Registrations For:</label><input type="date" name="filter_date" class="form-control" value="{{ filter_date }}"></div>
+        <div class="flex-grow-1"><label class="form-label">Registrations For:</label><input type="date" name="filter_date" class="form-control" value="{{ filter_date }}"></div>
         <button type="submit" class="btn btn-info text-white"><i class="fas fa-filter me-1"></i>Apply</button><a href="{{ url_for('center_dashboard') }}" class="btn btn-secondary">Today</a>
     </form>
 </div></div>
@@ -214,33 +193,32 @@ CENTER_DASHBOARD_TEMPLATE = """
     <div class="card-header">Total Registrations on {{ filter_date }}: <span class="badge bg-primary rounded-pill fs-6">{{ patients|length }}</span></div>
     <div class="table-responsive">
         <table class="table table-hover mb-0 align-middle">
-            <thead><tr><th>Patient Details</th><th>Ultrasound</th><th>Status</th><th class="text-center">Action</th></tr></thead>
+            <thead><tr><th>Patient</th><th>Photos</th><th>Status</th><th class="text-center">Action</th></tr></thead>
             <tbody>
             {% for p in patients %}
             <tr>
-                <td><strong>{{ p.name }}</strong><br><small class="text-muted">{{ p.phone }}</small></td>
-                <td>{{ p.ultrasound_name }}</td>
+                <td><strong>{{ p.name }}</strong><br><small class="text-muted">{{ p.phone }} | {{ p.ultrasound_name }}</small></td>
+                <td>
+                    {% if p.get('photo_url_1') %}<a href="{{ p.photo_url_1 }}" target="_blank"><img src="{{ p.photo_url_1 }}" class="photo-thumbnail"></a>{% endif %}
+                    {% if p.get('photo_url_2') %}<a href="{{ p.photo_url_2 }}" target="_blank"><img src="{{ p.photo_url_2 }}" class="photo-thumbnail"></a>{% endif %}
+                </td>
                 <td>
                     {% set status_color = 'warning' if p.status == 'Pending' else 'info' if p.status == 'Running' else 'success' %}
                     <span class="badge bg-{{ status_color }} text-dark">{{ p.status }}</span>
                 </td>
                 <td class="text-center">
+                    {% if p.status != 'Complete' %}
                     <div class="btn-group btn-group-sm">
                     {% if p.status == 'Pending' %}
                         <form action="{{ url_for('update_patient_status', patient_id=p._id, filter_date=filter_date) }}" method="POST" class="d-inline">
-                            <input type="hidden" name="new_status" value="Running"><button type="submit" class="btn btn-info text-white" title="Mark as Running"><i class="fas fa-play"></i> Start</button>
+                            <input type="hidden" name="new_status" value="Running"><button type="submit" class="btn btn-info text-white" title="Mark as Running"><i class="fas fa-play"></i></button>
                         </form>
-                        <form action="{{ url_for('update_patient_status', patient_id=p._id, filter_date=filter_date) }}" method="POST" class="d-inline">
-                            <input type="hidden" name="new_status" value="Complete"><button type="submit" class="btn btn-success" title="Mark as Complete"><i class="fas fa-check"></i> Complete</button>
-                        </form>
-                    {% elif p.status == 'Running' %}
-                        <form action="{{ url_for('update_patient_status', patient_id=p._id, filter_date=filter_date) }}" method="POST" class="d-inline">
-                            <input type="hidden" name="new_status" value="Complete"><button type="submit" class="btn btn-success" title="Mark as Complete"><i class="fas fa-check"></i> Complete</button>
-                        </form>
-                    {% else %}
-                        <span class="text-muted"><i class="fas fa-check-circle text-success"></i> Done</span>
                     {% endif %}
+                        <form action="{{ url_for('update_patient_status', patient_id=p._id, filter_date=filter_date) }}" method="POST" class="d-inline">
+                            <input type="hidden" name="new_status" value="Complete"><button type="submit" class="btn btn-success" title="Mark as Complete"><i class="fas fa-check"></i></button>
+                        </form>
                     </div>
+                    {% else %}<span class="text-success"><i class="fas fa-check-circle"></i> Done</span>{% endif %}
                 </td>
             </tr>
             {% else %}
@@ -261,10 +239,13 @@ REGISTER_TEMPLATE = """
     <div class="card-header text-center"><h3><i class="fas fa-user-plus me-2"></i>Patient Registration</h3></div>
     <div class="card-body p-4">
         <p class="text-center">Registering with <strong>{{ medical.name }}</strong> at <strong>{{ center.name }}</strong>.</p>
-        <form method="POST" class="needs-validation" novalidate>
+        <form method="POST" enctype="multipart/form-data" class="needs-validation" novalidate>
             <div class="mb-3"><label class="form-label">Full Name</label><input type="text" class="form-control" name="name" required></div>
             <div class="mb-3"><label class="form-label">Phone Number</label><input type="tel" class="form-control" name="phone" required minlength="10" maxlength="12" pattern="[0-9]{10,12}"></div>
             <div class="mb-3"><label class="form-label">Ultrasound Name</label><input type="text" class="form-control" name="ultrasound_name" required></div>
+            <hr>
+            <div class="mb-3"><label class="form-label">Upload Photo 1 (Optional)</label><input type="file" class="form-control" name="photo1" accept="image/*"></div>
+            <div class="mb-3"><label class="form-label">Upload Photo 2 (Optional)</label><input type="file" class="form-control" name="photo2" accept="image/*"></div>
             <button type="submit" class="btn btn-primary w-100 mt-3">Submit Registration</button>
         </form>
     </div></div></div></div>
@@ -290,6 +271,14 @@ SUCCESS_TEMPLATE = """
 load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv("ADMIN_KEY")
+
+# --- Cloudinary Configuration ---
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET")
+)
+
 client = MongoClient(os.getenv("MONGO_URI"))
 db = client.get_database()
 centers_collection, medicals_collection, patients_collection = db.centers, db.medicals, db.patients
@@ -442,7 +431,6 @@ def center_dashboard():
 @app.route('/update-patient-status/<patient_id>', methods=['POST'])
 def update_patient_status(patient_id):
     if 'center_id' not in session: return redirect(url_for('center_login'))
-    
     new_status = request.form.get('new_status')
     filter_date = request.args.get('filter_date', datetime.now().strftime('%Y-%m-%d'))
 
@@ -451,13 +439,11 @@ def update_patient_status(patient_id):
         return redirect(url_for('center_dashboard', filter_date=filter_date))
 
     patient = patients_collection.find_one({"_id": ObjectId(patient_id), "center_id": ObjectId(session['center_id'])})
-
     if patient:
         patients_collection.update_one({"_id": ObjectId(patient_id)}, {"$set": {"status": new_status}})
         flash(f"Patient status updated to {new_status}.", "success")
     else:
         flash("Unauthorized action or patient not found.", "danger")
-
     return redirect(url_for('center_dashboard', filter_date=filter_date))
 
 # ##############################################################################
@@ -470,10 +456,21 @@ def register_patient(medical_id):
         if not medical: return "<h2>Invalid registration link.</h2>", 404
         center = centers_collection.find_one({'_id': medical['center_id']})
         if request.method == 'POST':
+            photo1_url, photo2_url = '', ''
+            photo1 = request.files.get('photo1')
+            photo2 = request.files.get('photo2')
+            if photo1 and photo1.filename != '':
+                upload_result = cloudinary.uploader.upload(photo1)
+                photo1_url = upload_result.get('secure_url')
+            if photo2 and photo2.filename != '':
+                upload_result = cloudinary.uploader.upload(photo2)
+                photo2_url = upload_result.get('secure_url')
+
             patients_collection.insert_one({
                 'name': request.form['name'], 'phone': request.form['phone'], 'ultrasound_name': request.form['ultrasound_name'],
                 'medical_id': ObjectId(medical_id), 'center_id': medical['center_id'], 
-                'timestamp': datetime.utcnow(), 'status': 'Pending'
+                'timestamp': datetime.utcnow(), 'status': 'Pending',
+                'photo_url_1': photo1_url, 'photo_url_2': photo2_url
             })
             return redirect(url_for('registration_success'))
         return render_template_string(REGISTER_TEMPLATE, medical=medical, center=center)
