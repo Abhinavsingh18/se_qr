@@ -246,10 +246,10 @@ OWNER_LOGIN_TEMPLATE = """
 OWNER_DASHBOARD_TEMPLATE = """
 <h4 class="mb-3">QR Owner Dashboard: <strong>{{ session['owner_name'] }}</strong></h4>
 <div class="card">
-    <div class="card-header">New Registrations Pending Review</div>
+    <div class="card-header">All Patient Registrations</div>
     <div class="table-responsive">
         <table class="table table-hover mb-0 align-middle">
-            <thead><tr><th>Patient Details</th><th>Photos</th><th class="text-center">Action</th></tr></thead>
+            <thead><tr><th>Patient Details</th><th>Photos</th><th class="text-center">Action / Status</th></tr></thead>
             <tbody>
             {% for p in patients %}
             <tr>
@@ -259,13 +259,18 @@ OWNER_DASHBOARD_TEMPLATE = """
                     {% if p.get('photo_url_2') %}<a href="{{ p.photo_url_2 }}" target="_blank"><img src="{{ p.photo_url_2 }}" class="photo-thumbnail"></a>{% endif %}
                 </td>
                 <td class="text-center">
-                    <form action="{{ url_for('send_to_center', patient_id=p._id) }}" method="POST">
-                         <button type="submit" class="btn btn-success"><i class="fas fa-paper-plane me-2"></i>Send to Center</button>
-                    </form>
+                    {# MODIFIED: Show button only if not sent, otherwise show a status message #}
+                    {% if p.center_visibility == 'hidden' %}
+                        <form action="{{ url_for('send_to_center', patient_id=p._id) }}" method="POST">
+                             <button type="submit" class="btn btn-success"><i class="fas fa-paper-plane me-2"></i>Send to Center</button>
+                        </form>
+                    {% else %}
+                        <span class="text-success fw-bold"><i class="fas fa-check-circle me-1"></i>Sent to Center</span>
+                    {% endif %}
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="3" class="text-center text-muted p-4">No new registrations to review.</td></tr>
+            <tr><td colspan="3" class="text-center text-muted p-4">No registrations found.</td></tr>
             {% endfor %}
             </tbody>
         </table>
@@ -534,7 +539,8 @@ def owner_logout():
 def owner_dashboard():
     if 'owner_id' not in session: return redirect(url_for('owner_login'))
     
-    query = {"medical_id": ObjectId(session['owner_id']), "center_visibility": "hidden"}
+    # MODIFIED: Query now fetches ALL patients for this owner, not just the hidden ones.
+    query = {"medical_id": ObjectId(session['owner_id'])}
     patients = list(patients_collection.find(query, sort=[("timestamp", -1)]))
     return render_page(f"{session['owner_name']} Dashboard", OWNER_DASHBOARD_TEMPLATE, patients=patients)
 
