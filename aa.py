@@ -53,13 +53,9 @@ ADMIN_LAYOUT_TEMPLATE = """
             {% elif session.get('center_id') %}
                  <li class="nav-item"><a class="nav-link active" href="{{ url_for('center_dashboard') }}"><i class="fas fa-clinic-medical me-1"></i>Center Dashboard</a></li>
                  <li class="nav-item"><a href="{{ url_for('center_logout') }}" class="btn btn-outline-light ms-2"><i class="fas fa-sign-out-alt me-1"></i>Logout</a></li>
-            {% elif session.get('owner_id') %}
-                <li class="nav-item"><a class="nav-link active" href="{{ url_for('owner_dashboard') }}"><i class="fas fa-id-badge me-1"></i>Owner Dashboard</a></li>
-                <li class="nav-item"><a href="{{ url_for('owner_logout') }}" class="btn btn-outline-light ms-2"><i class="fas fa-sign-out-alt me-1"></i>Logout</a></li>
             {% else %}
                  <li class="nav-item"><a class="nav-link" href="{{ url_for('login') }}">Admin Login</a></li>
                  <li class="nav-item"><a class="nav-link" href="{{ url_for('center_login') }}">Center Login</a></li>
-                 <li class="nav-item"><a class="nav-link" href="{{ url_for('owner_login') }}">QR Owner Login</a></li>
             {% endif %}
         </ul>
     </div>
@@ -122,11 +118,9 @@ ADMIN_TEMPLATE = """
         </table></div>
     </div></div></div>
     <div class="col-12"><h4 class="mt-4">System Overview</h4><div class="row">
-        <div class="col-lg-4"><div class="card"><div class="card-header"><i class="fas fa-user-md me-2"></i>Add QR Owner / Medical Staff</div>
+        <div class="col-lg-4"><div class="card"><div class="card-header"><i class="fas fa-user-md me-2"></i>Add Medical Staff</div>
         <div class="card-body"><form action="{{ url_for('add_medical') }}" method="POST">
-            <div class="mb-3"><label class="form-label">Owner's Name</label><input type="text" name="name" class="form-control" required></div>
-            <div class="mb-3"><label class="form-label">Username</label><input type="text" name="username" class="form-control" required></div>
-            <div class="mb-3"><label class="form-label">Password</label><input type="password" name="password" class="form-control" required></div>
+            <div class="mb-3"><label class="form-label">Medical's Name</label><input type="text" name="name" class="form-control" required></div>
             <div class="mb-3"><label class="form-label">Assign to Center</label>
                 <select class="form-select" name="center_id" required>
                     <option value="" disabled selected>Select...</option>
@@ -148,31 +142,16 @@ ADMIN_TEMPLATE = """
                 {% for medical in center.medicals %}
                 <div class="list-group-item p-3">
                     <div class="row align-items-center">
-                        <div class="col-7">
-                            <h6 class="mb-1">{{ medical.name }}</h6>
-                            <small class="text-muted d-block">Username: <strong>{{ medical.username or 'N/A' }}</strong></small>
-                            <span class="badge bg-primary rounded-pill">{{ medical.patients | length }} Registrations</span>
-                        </div>
+                        <div class="col-8"><h6 class="mb-1">{{ medical.name }}</h6><span class="badge bg-primary rounded-pill">{{ medical.patients | length }} Registrations</span></div>
                         <div class="col-2 text-center"><img src="data:image/png;base64,{{ medical.qr_code }}" alt="QR" style="width: 60px; height: 60px;"></div>
-                        <div class="col-3 text-end">
-                             <div class="btn-group-vertical btn-group-sm">
-                                <button class="btn btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#patients-{{ medical._id }}" title="View Patients"><i class="fas fa-users"></i></button>
-                                <button class="btn btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#resetMedicalPassModal-{{ medical._id }}" title="Reset Password"><i class="fas fa-key"></i></button>
-                             </div>
-                        </div>
+                        <div class="col-2 text-end"><button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#patients-{{ medical._id }}"><i class="fas fa-users me-1"></i></button></div>
                     </div>
                     <div class="collapse mt-3" id="patients-{{ medical._id }}">
                         <ul class="list-unstyled patient-list border-top pt-2">
                             {% for patient in medical.patients %}
-                            <li>
-                                <strong>{{ patient.name }}</strong> ({{ patient.phone }})
+                            <li><strong>{{ patient.name }}</strong> ({{ patient.phone }})
                                 {% set status_color = 'warning' if patient.status == 'Pending' else 'info' if patient.status == 'Running' else 'success' %}
                                 <span class="badge bg-{{ status_color }} text-dark ms-2">{{ patient.status }}</span>
-                                {% if patient.center_visibility == 'hidden' %}
-                                    <span class="badge bg-secondary ms-1">Pending Owner</span>
-                                {% else %}
-                                    <span class="badge bg-info text-dark ms-1">Sent to Center</span>
-                                {% endif %}
                                 <br><small class="text-muted">Ultrasound: {{ patient.ultrasound_name or 'N/A' }}</small>
                                 <div>
                                     {% if patient.get('photo_url_1') %}<a href="{{ patient.photo_url_1 }}" target="_blank"><img src="{{ patient.photo_url_1 }}" class="photo-thumbnail"></a>{% endif %}
@@ -183,13 +162,6 @@ ADMIN_TEMPLATE = """
                         </ul>
                     </div>
                 </div>
-                <div class="modal fade" id="resetMedicalPassModal-{{medical._id}}"><div class="modal-dialog"><div class="modal-content">
-                    <form action="{{ url_for('reset_medical_password', medical_id=medical._id) }}" method="POST">
-                        <div class="modal-header"><h5 class="modal-title">Reset Password for {{medical.name}}</h5></div>
-                        <div class="modal-body"><label class="form-label">New Password</label><input type="password" name="new_password" class="form-control" required></div>
-                        <div class="modal-footer"><button type="submit" class="btn btn-danger">Confirm Reset</button></div>
-                    </form>
-                </div></div></div>
                 {% endfor %}
             </div></div>
             {% endfor %}
@@ -230,47 +202,6 @@ ANALYTICS_TEMPLATE = """
         options: { indexAxis: 'y', scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } }
     });
 </script>
-"""
-
-# === QR OWNER TEMPLATES (NEW) ===
-OWNER_LOGIN_TEMPLATE = """
-<div class="row justify-content-center mt-5"><div class="col-md-5"><div class="card">
-<div class="card-header text-center"><h4><i class="fas fa-id-badge me-2"></i>QR Owner Login</h4></div>
-<div class="card-body p-4"><form method="POST">
-    <div class="mb-3"><label class="form-label">Username</label><input type="text" name="username" class="form-control" required></div>
-    <div class="mb-3"><label class="form-label">Password</label><input type="password" name="password" class="form-control" required></div>
-    <button type="submit" class="btn btn-primary w-100 mt-3"><i class="fas fa-sign-in-alt me-2"></i>Login</button>
-</form></div></div></div></div>
-"""
-
-OWNER_DASHBOARD_TEMPLATE = """
-<h4 class="mb-3">QR Owner Dashboard: <strong>{{ session['owner_name'] }}</strong></h4>
-<div class="card">
-    <div class="card-header">New Registrations Pending Review</div>
-    <div class="table-responsive">
-        <table class="table table-hover mb-0 align-middle">
-            <thead><tr><th>Patient Details</th><th>Photos</th><th class="text-center">Action</th></tr></thead>
-            <tbody>
-            {% for p in patients %}
-            <tr>
-                <td><strong>{{ p.name }}</strong><br><small class="text-muted">{{ p.phone }} | {{ p.ultrasound_name }}<br>Registered: {{ p.timestamp.strftime('%d-%b-%Y %H:%M') }} UTC</small></td>
-                <td>
-                    {% if p.get('photo_url_1') %}<a href="{{ p.photo_url_1 }}" target="_blank"><img src="{{ p.photo_url_1 }}" class="photo-thumbnail"></a>{% endif %}
-                    {% if p.get('photo_url_2') %}<a href="{{ p.photo_url_2 }}" target="_blank"><img src="{{ p.photo_url_2 }}" class="photo-thumbnail"></a>{% endif %}
-                </td>
-                <td class="text-center">
-                    <form action="{{ url_for('send_to_center', patient_id=p._id) }}" method="POST">
-                         <button type="submit" class="btn btn-success"><i class="fas fa-paper-plane me-2"></i>Send to Center</button>
-                    </form>
-                </td>
-            </tr>
-            {% else %}
-            <tr><td colspan="3" class="text-center text-muted p-4">No new registrations to review.</td></tr>
-            {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
 """
 
 # === CENTER ADMIN TEMPLATES ===
@@ -365,7 +296,7 @@ SUCCESS_TEMPLATE = """
 <style>body{display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;}</style></head>
 <body><div>
 <h1 class="display-4" style="color:var(--primary-blue);"><i class="fas fa-check-circle fa-2x"></i><br>Registration Successful!</h1>
-<p class="lead">Thank you. Your information has been submitted for review.</p>
+<p class="lead">Thank you. Your information has been submitted.</p>
 </div></body></html>
 """
 
@@ -399,7 +330,6 @@ def generate_qr_code_base64(data):
 def index():
     if 'logged_in' in session: return redirect(url_for('admin_dashboard'))
     if 'center_id' in session: return redirect(url_for('center_dashboard'))
-    if 'owner_id' in session: return redirect(url_for('owner_dashboard'))
     return redirect(url_for('login'))
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -440,15 +370,11 @@ def admin_dashboard():
         {"$group": {
             "_id": "$medicals._id", "center_id": {"$first": "$_id"}, "center_name": {"$first": "$name"},
             "center_address": {"$first": "$address"}, "medical_name": {"$first": "$medicals.name"},
-            "medical_username": {"$first": "$medicals.username"},
             "qr_code": {"$first": "$medicals.qr_code"}, "patients": {"$first": "$medicals.patients"}
         }},
         {"$group": {
             "_id": "$center_id", "name": {"$first": "$center_name"}, "address": {"$first": "$center_address"},
-            "medicals": {"$push": {
-                "_id": "$_id", "name": "$medical_name", "username": "$medical_username", 
-                "qr_code": "$qr_code", "patients": "$patients"
-            }}
+            "medicals": {"$push": {"_id": "$_id", "name": "$medical_name", "qr_code": "$qr_code", "patients": "$patients"}}
         }},
         {"$project": {
             "name": 1, "address": 1, "medicals": {"$filter": {"input": "$medicals", "as": "m", "cond": {"$ne": ["$$m._id", None]}}}
@@ -478,84 +404,23 @@ def reset_center_password(center_id):
     if 'logged_in' not in session: return redirect(url_for('login'))
     hashed_password = generate_password_hash(request.form.get('new_password'))
     centers_collection.update_one({"_id": ObjectId(center_id)}, {"$set": {"password": hashed_password}})
-    flash("Center password has been reset.", "success")
+    flash("Password has been reset.", "success")
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/add-medical', methods=['POST'])
 def add_medical():
     if 'logged_in' not in session: return redirect(url_for('login'))
-    form = request.form
-    name, center_id_str, username, password = form.get('name'), form.get('center_id'), form.get('username'), form.get('password')
-    
-    if medicals_collection.find_one({"username": username}):
-        flash(f"QR Owner username '{username}' already exists.", "danger")
-        return redirect(url_for('admin_dashboard'))
-
-    if name and center_id_str and username and password:
-        new_medical = medicals_collection.insert_one({
-            'name': name, 'center_id': ObjectId(center_id_str),
-            'username': username, 'password': generate_password_hash(password),
-            'qr_code': ''
-        })
+    name, center_id_str = request.form.get('name'), request.form.get('center_id')
+    if name and center_id_str:
+        new_medical = medicals_collection.insert_one({'name': name, 'center_id': ObjectId(center_id_str), 'qr_code': ''})
         registration_url = f"{HOST_URL}/register/{new_medical.inserted_id}"
         qr_code_b64 = generate_qr_code_base64(registration_url)
         medicals_collection.update_one({'_id': new_medical.inserted_id}, {'$set': {'qr_code': qr_code_b64}})
-        flash(f"Medical staff '{name}' added with username '{username}'.", "success")
-    return redirect(url_for('admin_dashboard'))
-
-@app.route('/reset-medical-password/<medical_id>', methods=['POST'])
-def reset_medical_password(medical_id):
-    if 'logged_in' not in session: return redirect(url_for('login'))
-    hashed_password = generate_password_hash(request.form.get('new_password'))
-    medicals_collection.update_one({"_id": ObjectId(medical_id)}, {"$set": {"password": hashed_password}})
-    flash("QR Owner password has been reset.", "success")
+        flash(f"Medical staff '{name}' added.", "success")
     return redirect(url_for('admin_dashboard'))
 
 # ##############################################################################
-# ## 4. QR OWNER ROUTES (NEW)
-# ##############################################################################
-@app.route('/owner-login', methods=['GET', 'POST'])
-def owner_login():
-    if request.method == 'POST':
-        owner = medicals_collection.find_one({"username": request.form['username']})
-        if owner and check_password_hash(owner.get('password', ''), request.form['password']):
-            session['owner_id'], session['owner_name'] = str(owner['_id']), owner['name']
-            return redirect(url_for('owner_dashboard'))
-        flash("Invalid QR Owner username or password.", "danger")
-    return render_page("QR Owner Login", OWNER_LOGIN_TEMPLATE)
-
-@app.route('/owner-logout')
-def owner_logout():
-    session.pop('owner_id', None)
-    session.pop('owner_name', None)
-    return redirect(url_for('owner_login'))
-
-@app.route('/owner-dashboard')
-def owner_dashboard():
-    if 'owner_id' not in session: return redirect(url_for('owner_login'))
-    
-    query = {"medical_id": ObjectId(session['owner_id']), "center_visibility": "hidden"}
-    patients = list(patients_collection.find(query, sort=[("timestamp", -1)]))
-    return render_page(f"{session['owner_name']} Dashboard", OWNER_DASHBOARD_TEMPLATE, patients=patients)
-
-@app.route('/send-to-center/<patient_id>', methods=['POST'])
-def send_to_center(patient_id):
-    if 'owner_id' not in session: return redirect(url_for('owner_login'))
-    
-    patient = patients_collection.find_one({
-        "_id": ObjectId(patient_id), 
-        "medical_id": ObjectId(session['owner_id'])
-    })
-    if patient:
-        patients_collection.update_one(
-            {"_id": ObjectId(patient_id)}, 
-            {"$set": {"center_visibility": "visible"}}
-        )
-        flash(f"Patient '{patient.get('name')}' sent to the center.", "success")
-    return redirect(url_for('owner_dashboard'))
-
-# ##############################################################################
-# ## 5. CENTER ADMIN ROUTES
+# ## 4. CENTER ADMIN ROUTES
 # ##############################################################################
 @app.route('/center-login', methods=['GET', 'POST'])
 def center_login():
@@ -581,11 +446,7 @@ def center_dashboard():
     start_of_day = datetime.strptime(filter_date_str, '%Y-%m-%d')
     end_of_day = start_of_day + timedelta(days=1)
     
-    query = {
-        "center_id": ObjectId(session['center_id']), 
-        "timestamp": {"$gte": start_of_day, "$lt": end_of_day},
-        "center_visibility": "visible" # <-- Important: Only shows patients sent by the owner
-    }
+    query = {"center_id": ObjectId(session['center_id']), "timestamp": {"$gte": start_of_day, "$lt": end_of_day}}
     if search_query:
         query["$or"] = [
             {"name": {"$regex": search_query, "$options": "i"}},
@@ -605,7 +466,7 @@ def update_patient_status(patient_id):
     return redirect(request.referrer or url_for('center_dashboard'))
 
 # ##############################################################################
-# ## 6. DATA EXPORT & ANALYTICS ROUTES
+# ## 5. DATA EXPORT & ANALYTICS ROUTES
 # ##############################################################################
 @app.route('/analytics')
 def analytics_dashboard():
@@ -637,7 +498,7 @@ def analytics_dashboard():
     return render_page("Analytics", ANALYTICS_TEMPLATE, daily_stats=daily_stats, top_centers=top_centers, top_medicals=top_medicals)
 
 # ##############################################################################
-# ## 7. PATIENT REGISTRATION ROUTES
+# ## 6. PATIENT REGISTRATION ROUTES
 # ##############################################################################
 @app.route('/register/<medical_id>', methods=['GET', 'POST'])
 def register_patient(medical_id):
@@ -655,7 +516,6 @@ def register_patient(medical_id):
                 'name': request.form['name'], 'phone': request.form['phone'], 'ultrasound_name': request.form['ultrasound_name'],
                 'medical_id': ObjectId(medical_id), 'center_id': medical['center_id'], 
                 'timestamp': datetime.utcnow(), 'status': 'Pending',
-                'center_visibility': 'hidden', # <-- Important: Data is hidden from center by default
                 'photo_url_1': photo1_url, 'photo_url_2': photo2_url
             })
             return redirect(url_for('registration_success'))
@@ -668,7 +528,7 @@ def registration_success():
     return render_template_string(SUCCESS_TEMPLATE)
 
 # ##############################################################################
-# ## 8. RUN APP
+# ## 7. RUN APP
 # ##############################################################################
 if __name__ == '__main__':
     app.run(host=os.getenv("FLASK_HOST", "0.0.0.0"), port=int(os.getenv("FLASK_PORT", 5000)), debug=True)
